@@ -67,10 +67,9 @@ public enum Exposure: Equatable, Sendable {
 }
 
 func ntop<T>(_ family: Int32, _ addr: T) -> String {
-    var a = addr
     var buf = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
-    guard inet_ntop(family, &a, &buf, socklen_t(buf.count)) != nil else { return "?" }
-    return String(cString: buf)
+    let ok = withUnsafeBytes(of: addr) { inet_ntop(family, $0.baseAddress, &buf, socklen_t(buf.count)) != nil }
+    return ok ? String(cString: buf) : "?"
 }
 
 public struct Listener: Equatable {
@@ -469,17 +468,65 @@ public enum KillError: Error, Equatable, CustomStringConvertible {
     }
 }
 
-/// SIGTERM, then SIGKILL after 2 s — re-verifying identity before each signal.
-public func safeTerminate(pid: pid_t, start: UInt64) -> KillError? {
+/// How carefully a process is stopped.
+public enum StopPolicy: Equatable, Sendable {
+    case devServer      // 2 s grace, then SIGKILL
+    case dataStore      // databases & brokers: 15 s grace, never an automatic SIGKILL
+
+    public init(_ l: Listener) { self = l.kind == .database ? .dataStore : .devServer }
+
+    public var grace: TimeInterval { self == .dataStore ? 15 : 2 }
+    public var autoForce: Bool { self == .devServer }
+    public var warning: String? {
+        self == .dataStore
+            ? "Databases and brokers can lose or corrupt data that isn't flushed to disk. Ports asks it to shut down "
+              + "cleanly and waits up to 15 s; it never force-kills automatically."
+            : nil
+    }
+}
+
+func verify(_ pid: pid_t, _ start: UInt64) -> KillError? {
     guard pid > 1, pid != getpid() else { return .protected }
     guard let id = Proc.identity(pid), id.start == start else { return .gone }
     guard id.uid == getuid() else { return .notYours }
+    return nil
+}
+
+/// SIGTERM (+ SIGCONT if suspended), wait `grace`, then SIGKILL only if `escalate` —
+/// re-verifying identity before each signal.
+public func safeTerminate(pid: pid_t, start: UInt64, grace: TimeInterval = 2, escalate: Bool = true) -> KillError? {
+    if let err = verify(pid, start) { return err }
     if kill(pid, SIGTERM) != 0 { return .failed(String(cString: strerror(errno))) }
     if Proc.isStopped(pid) { kill(pid, SIGCONT) }                // a suspended process can't act on SIGTERM
-    for _ in 0..<20 {
+    let deadline = Date().addingTimeInterval(grace)
+    while Date() < deadline {
         usleep(100_000)
         if Proc.identity(pid)?.start != start { return nil }       // exited
     }
-    if Proc.identity(pid)?.start == start { kill(pid, SIGKILL) }
+    if escalate, Proc.identity(pid)?.start == start { kill(pid, SIGKILL) }
     return nil
+}
+
+public func safeTerminate(pid: pid_t, start: UInt64, policy: StopPolicy) -> KillError? {
+    safeTerminate(pid: pid, start: start, grace: policy.grace, escalate: policy.autoForce)
+}
+
+/// The separate, explicit Force step: SIGKILL now.
+public func forceKill(pid: pid_t, start: UInt64) -> KillError? {
+    if let err = verify(pid, start) { return err }
+    return kill(pid, SIGKILL) == 0 ? nil : .failed(String(cString: strerror(errno)))
+}
+
+/// What a fresh rescan says about a port after a stop.
+public func portReport(_ port: Int, owners: [Listener]) -> String {
+    let still = owners.filter { $0.port == port }
+    guard !still.isEmpty else { return "Port \(port) is free" }
+    return "Still listening: " + still.map { "\($0.label.isEmpty ? basename($0.exe) : $0.label) (PID \($0.pid))" }
+        .joined(separator: ", ")
+}
+
+/// Every process listening on `port`, from a fresh scan, one entry per PID.
+public func owners(ofPort port: Int, in listeners: [Listener]) -> [Listener] {
+    var seen = Set<pid_t>()
+    return listeners.filter { $0.port == port && seen.insert($0.pid).inserted }.sorted { $0.pid < $1.pid }
 }

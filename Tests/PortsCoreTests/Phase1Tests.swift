@@ -265,3 +265,67 @@ struct ProcessStateTests {
         #expect(child.terminationStatus == SIGTERM)     // exited on SIGTERM after SIGCONT, not SIGKILL
     }
 }
+
+// MARK: - 7. Safety tiers
+
+@Suite("Phase 1 · Safety tiers")
+struct SafetyTierTests {
+    @Test("Databases and brokers get 15 s, a warning and no automatic SIGKILL")
+    func tiers() {
+        let db = StopPolicy(fixture("/opt/homebrew/bin/postgres", "postgres", kind: .database))
+        let dev = StopPolicy(fixture("/usr/local/bin/node", "node server.js", kind: .backend))
+        #expect(db == .dataStore && db.grace == 15 && !db.autoForce && db.warning?.contains("data") == true)
+        #expect(dev == .devServer && dev.grace == 2 && dev.autoForce && dev.warning == nil)
+    }
+
+    @Test("Without escalation a process ignoring SIGTERM survives; Force is a separate step")
+    func noAutoForce() throws {
+        let child = try spawn("/bin/sh", ["-c", "trap '' TERM; exec /bin/sleep 30"])
+        defer { if child.isRunning { kill(child.processIdentifier, SIGKILL) } }
+        let pid = child.processIdentifier
+        usleep(200_000)                                               // let sh exec sleep
+        let id = try #require(Proc.identity(pid))
+
+        #expect(safeTerminate(pid: pid, start: id.start, grace: 0.3, escalate: false) == nil)
+        #expect(Proc.identity(pid)?.start == id.start)                // still running
+
+        #expect(forceKill(pid: pid, start: id.start) == nil)
+        child.waitUntilExit()
+        #expect(child.terminationStatus == SIGKILL)
+    }
+
+    @Test("Force re-checks identity")
+    func forceGuards() {
+        #expect(forceKill(pid: getpid(), start: 0) == .protected)
+        #expect(forceKill(pid: getpid() + 100_000, start: 0) == .gone)
+    }
+}
+
+// MARK: - 5 & 8. Owners and post-stop report
+
+@Suite("Phase 1 · Owners and report")
+struct OwnerReportTests {
+    @Test("Report says free or names who still listens")
+    func report() {
+        var l = fixture("/usr/local/bin/node", "node server.js", port: 3000)
+        l.label = "node · web"
+        #expect(portReport(3000, owners: []) == "Port 3000 is free")
+        #expect(portReport(3000, owners: [l]) == "Still listening: node · web (PID 1234)")
+        #expect(portReport(4000, owners: [l]) == "Port 4000 is free")
+    }
+
+    @Test("A fresh scan finds every owner of a port")
+    func multipleOwners() throws {
+        // Two processes on one port: this test process on IPv4 loopback, a child on IPv6 loopback.
+        let s = try TestListener()
+        let child = try spawn("/usr/bin/nc", ["-6", "-l", "::1", "\(s.port)"])
+        defer { if child.isRunning { child.terminate(); child.waitUntilExit() } }
+        _ = waitFor { Proc.listeningPorts(child.processIdentifier).contains { $0.port == s.port } }
+
+        let found = owners(ofPort: s.port, in: scanWithContainers())
+        #expect(found.map(\.pid).contains(getpid()))
+        #expect(found.map(\.pid).contains(child.processIdentifier))
+        #expect(found.count == 2)
+        #expect(portReport(s.port, owners: found).hasPrefix("Still listening: "))
+    }
+}
