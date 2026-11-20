@@ -1,0 +1,9 @@
+:8787   5632    Backend            python3
+:5000   621     System & Apps  LAN ControlCenter
+:7000   621     System & Apps  LAN ControlCenter
+:8178   53776   System & Apps      OpenWhispr
+:8200   53404   System & Apps      OpenWhispr
+:29073  59385   System & Apps      Visual Studio Code
+:35656  57378   System & Apps      Visual Studio Code
+:53201  57377   System & Apps      Visual Studio Code
+:53943  611     System & Apps  LAN rapportd
