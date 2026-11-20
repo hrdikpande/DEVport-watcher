@@ -65,6 +65,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var listeners: [Listener] = []
     var docker: [Int: String] = [:]
     let web = WebCache()
+    let stops = StopRegistry()
+    var stopAlerts: [String: NSWindow] = [:]     // the one open alert of each running stop flow
     var menuOpen = false
     var scanning = false
     var filter = Filter(rawValue: UserDefaults.standard.integer(forKey: "filter")) ?? .developer {
@@ -243,43 +245,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Claim the stop flow for `key`. If one is already running, bring its alert forward instead.
+    func beginStop(_ key: String) -> Bool {
+        if stops.claim(key) { return true }
+        if let w = stopAlerts[key] { NSApp.activate(); w.makeKeyAndOrderFront(nil) } else { NSSound.beep() }
+        return false
+    }
+
+    func endStop(_ key: String) {
+        stops.release(key)
+        stopAlerts[key] = nil
+    }
+
+    /// Close any other alert still open for this process (e.g. after Force Quit).
+    func closeStopAlert(_ key: String) {
+        guard let w = stopAlerts.removeValue(forKey: key) else { return }
+        if NSApp.modalWindow == w { NSApp.abortModal() }
+        w.orderOut(nil)
+    }
+
     func confirmKill(_ l: Listener) {
+        let key = StopRegistry.key(pid: l.pid, start: l.start)
+        guard beginStop(key) else { return }
         let policy = StopPolicy(l)
         var detail = "Port \(l.port) · PID \(l.pid)\n\(tilde(l.command))"
         if let warning = policy.warning { detail += "\n\n⚠️ " + warning }
         if l.kind == .system { detail += "\n\nThis is an app or system process. Stopping it may close an app." }
         if l.kind == .docker { detail += "\n\nThis is the container engine. Stopping it stops ALL containers." }
-        guard confirm("Stop \(l.label)?", detail, button: policy == .dataStore ? "Shut Down" : "Kill") else { return }
+        guard confirm("Stop \(l.label)?", detail, button: policy == .dataStore ? "Shut Down" : "Kill", key: key) else {
+            return endStop(key)
+        }
         stop(pid: l.pid, start: l.start, policy: policy, ports: [l.port], name: l.label)
     }
 
     /// Stop ladder, then rescan and report each port. Data stores are never force-killed here:
-    /// if one is still running, Force is offered as its own explicit step.
+    /// if one is still running, Force is offered as its own explicit step. Caller holds the stop claim.
     func stop(pid: pid_t, start: UInt64, policy: StopPolicy, ports: [Int], name: String) {
+        let key = StopRegistry.key(pid: pid, start: start)
         var err: KillError?
         afterWork({ err = safeTerminate(pid: pid, start: start, policy: policy) }) { fresh in
-            if let err { self.alert("Couldn't stop PID \(pid)", err.description); return }
+            if let err { self.alert("Couldn't stop PID \(pid)", err.description, key: key); return self.endStop(key) }
             let report = ports.map { portReport($0, owners: owners(ofPort: $0, in: fresh)) }.joined(separator: "\n")
             let survived = fresh.contains { $0.pid == pid && $0.start == start }
-            guard survived && !policy.autoForce else { return self.alert(report, "") }
+            guard survived && !policy.autoForce else { self.alert(report, "", key: key); return self.endStop(key) }
             guard self.confirm("\(name) is still running", report + "\n\nIt didn't shut down within \(Int(policy.grace)) s. "
                                + "Force Quit kills it immediately (SIGKILL) and may lose unsaved data.",
-                               button: "Force Quit") else { return }
+                               button: "Force Quit", key: key) else { return self.endStop(key) }
             var forceErr: KillError?
             self.afterWork({ forceErr = forceKill(pid: pid, start: start) }) { fresh in
-                if let forceErr { return self.alert("Couldn't force quit PID \(pid)", forceErr.description) }
-                self.alert(ports.map { portReport($0, owners: owners(ofPort: $0, in: fresh)) }.joined(separator: "\n"), "")
+                self.closeStopAlert(key)
+                if let forceErr { self.alert("Couldn't force quit PID \(pid)", forceErr.description, key: key) }
+                else { self.alert(ports.map { portReport($0, owners: owners(ofPort: $0, in: fresh)) }.joined(separator: "\n"), "", key: key) }
+                self.endStop(key)
             }
         }
     }
 
     func stopContainer(_ name: String, port: Int) {
         guard let docker = dockerPath, isSafeContainerName(name) else { return }
-        guard confirm("Stop container “\(name)”?", "It publishes port \(port).\nStart it again any time with:  docker start \(name)", button: "Stop") else { return }
+        let key = "container-" + name
+        guard beginStop(key) else { return }
+        guard confirm("Stop container “\(name)”?", "It publishes port \(port).\nStart it again any time with:  docker start \(name)",
+                      button: "Stop", key: key) else { return endStop(key) }
         var res = (out: "", ok: true)
         afterWork({ res = run(docker, ["stop", "--", name], timeout: 20) }) { fresh in
-            if !res.ok { return self.alert("Couldn't stop \(name)", res.out) }
-            self.alert(portReport(port, owners: owners(ofPort: port, in: fresh)), "")
+            if !res.ok { self.alert("Couldn't stop \(name)", res.out, key: key) }
+            else { self.alert(portReport(port, owners: owners(ofPort: port, in: fresh)), "", key: key) }
+            self.endStop(key)
         }
     }
 
@@ -305,26 +337,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let text = prompt("Kill by PID", "Which process ID?"), let pid = pid_t(text), pid > 0 else { return }
         guard let id = Proc.identity(pid) else { alert("No process with PID \(pid)", ""); return }
         let cmd = Proc.commandLine(pid)
+        let key = StopRegistry.key(pid: pid, start: id.start)
+        guard beginStop(key) else { return }
         let mine = listeners.filter { $0.pid == pid && $0.start == id.start }
         let policy = mine.contains { StopPolicy($0) == .dataStore } ? StopPolicy.dataStore : .devServer
         var detail = tilde(cmd.isEmpty ? Proc.exePath(pid) : cmd)
         if let warning = policy.warning { detail += "\n\n⚠️ " + warning }
-        guard confirm("Kill PID \(pid)?", detail, button: "Kill") else { return }
+        guard confirm("Kill PID \(pid)?", detail, button: "Kill", key: key) else { return endStop(key) }
         // start time captured *before* the dialog
         stop(pid: pid, start: id.start, policy: policy, ports: mine.map(\.port), name: "PID \(pid)")
     }
 
     // MARK: Dialogs
 
-    func confirm(_ title: String, _ text: String, button: String) -> Bool {
+    /// Run an alert modally; with `key`, register it as that stop flow's open alert while it is up.
+    func present(_ a: NSAlert, key: String?) -> NSApplication.ModalResponse {
         NSApp.activate()
+        if let key { stopAlerts[key] = a.window }
+        defer { if let key, stopAlerts[key] === a.window { stopAlerts[key] = nil } }
+        return a.runModal()
+    }
+
+    func confirm(_ title: String, _ text: String, button: String, key: String? = nil) -> Bool {
         let a = NSAlert()
         a.alertStyle = .warning
         a.messageText = title
         a.informativeText = text
         a.addButton(withTitle: button).hasDestructiveAction = true
         a.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
-        return a.runModal() == .alertFirstButtonReturn
+        return present(a, key: key) == .alertFirstButtonReturn
     }
 
     /// Several processes own one port: list them all and let the user pick.
@@ -344,12 +385,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return owners[popup.indexOfSelectedItem]
     }
 
-    func alert(_ title: String, _ text: String) {
-        NSApp.activate()
+    func alert(_ title: String, _ text: String, key: String? = nil) {
         let a = NSAlert()
         a.messageText = title
         a.informativeText = text
-        a.runModal()
+        _ = present(a, key: key)
     }
 
     func prompt(_ title: String, _ text: String) -> String? {

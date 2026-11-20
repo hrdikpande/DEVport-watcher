@@ -647,6 +647,28 @@ public func forceKill(pid: pid_t, start: UInt64) -> KillError? {
     return kill(pid, SIGKILL) == 0 ? nil : .failed(String(cString: strerror(errno)))
 }
 
+/// At most one stop flow per process (or container): a second request while one runs is refused,
+/// so it can't start a second ladder or a second alert.
+public final class StopRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var busy = Set<String>()
+    public init() {}
+
+    public static func key(pid: pid_t, start: UInt64) -> String { "\(pid)-\(start)" }
+
+    /// True if the caller now owns the flow for `key`; false if one is already running.
+    public func claim(_ key: String) -> Bool { lock.lock(); defer { lock.unlock() }; return busy.insert(key).inserted }
+    public func release(_ key: String) { lock.lock(); busy.remove(key); lock.unlock() }
+    public func isBusy(_ key: String) -> Bool { lock.lock(); defer { lock.unlock() }; return busy.contains(key) }
+
+    /// Run `body` only if no flow for `key` is running; nil when refused.
+    public func once<T>(_ key: String, _ body: () -> T) -> T? {
+        guard claim(key) else { return nil }
+        defer { release(key) }
+        return body()
+    }
+}
+
 /// What a fresh rescan says about a port after a stop.
 public func portReport(_ port: Int, owners: [Listener]) -> String {
     let still = owners.filter { $0.port == port }

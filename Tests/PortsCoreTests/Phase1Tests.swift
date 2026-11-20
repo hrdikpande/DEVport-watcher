@@ -484,3 +484,34 @@ struct ListRowTests {
         #expect(listRow(row).hasSuffix("STOPPED"))
     }
 }
+
+// MARK: - One stop flow per process
+
+@Suite("Phase 1 · Stop registry")
+struct StopRegistryTests {
+    @Test("Two stop requests for one PID produce one ladder")
+    func oneLadder() throws {
+        let child = try spawn("/bin/sh", ["-c", "trap '' TERM; exec /bin/sleep 30"])
+        defer { if child.isRunning { kill(child.processIdentifier, SIGKILL); child.waitUntilExit() } }
+        let pid = child.processIdentifier
+        usleep(200_000)
+        let id = try #require(Proc.identity(pid))
+        let registry = StopRegistry(), key = StopRegistry.key(pid: pid, start: id.start)
+        let lock = NSLock()
+        var ladders = 0, refused = 0
+
+        DispatchQueue.concurrentPerform(iterations: 2) { i in
+            if i == 1 { usleep(100_000) }                     // second request arrives mid-ladder
+            let ran = registry.once(key) { () -> Bool in
+                lock.lock(); ladders += 1; lock.unlock()
+                _ = safeTerminate(pid: pid, start: id.start, grace: 0.5, escalate: false)
+                return true
+            }
+            if ran == nil { lock.lock(); refused += 1; lock.unlock() }
+        }
+        #expect(ladders == 1)
+        #expect(refused == 1)
+        #expect(!registry.isBusy(key))                        // released: a later request may run again
+        #expect(registry.claim(key))
+    }
+}
