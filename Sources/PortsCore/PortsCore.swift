@@ -81,14 +81,15 @@ public struct Listener: Equatable {
     public var exposure: Exposure
     public var exposed: Bool { exposure.isNetworkReachable }   // reachable from your network
     public let exe: String          // real executable path from the kernel
-    public let command: String      // argv joined (display + tool detection only)
+    public let command: String      // argv joined (display only)
+    public let argv: [String]       // tool detection only (argv can be faked; never used for safety)
     public let cwd: String
     public var container: String? = nil
     public var kind: Kind = .system
     public var label = ""
 
     public init(port: Int, pid: pid_t, start: UInt64, uid: uid_t, exposed: Bool,
-                exposure: Exposure? = nil, exe: String, command: String, cwd: String, container: String? = nil,
+                exposure: Exposure? = nil, exe: String, command: String, argv: [String]? = nil, cwd: String, container: String? = nil,
                 kind: Kind = .system, label: String = "") {
         self.port = port
         self.pid = pid
@@ -97,6 +98,7 @@ public struct Listener: Equatable {
         self.exposure = exposure ?? (exposed ? .allInterfaces : .loopback)
         self.exe = exe
         self.command = command
+        self.argv = argv ?? command.split(separator: " ").map(String.init)
         self.cwd = cwd
         self.container = container
         self.kind = kind
@@ -146,15 +148,17 @@ public enum Proc {
     }
 
     /// argv via KERN_PROCARGS2: [argc:int32][exec path\0][padding \0…][argv0\0][argv1\0]…
-    public static func commandLine(_ pid: pid_t) -> String {
+    public static func commandLine(_ pid: pid_t) -> String { arguments(pid).joined(separator: " ") }
+
+    public static func arguments(_ pid: pid_t) -> [String] {
         var argmax: Int32 = 0
         var size = MemoryLayout<Int32>.size
         var mib = [CTL_KERN, KERN_ARGMAX]
-        guard sysctl(&mib, 2, &argmax, &size, nil, 0) == 0 else { return "" }
+        guard sysctl(&mib, 2, &argmax, &size, nil, 0) == 0 else { return [] }
         var buf = [UInt8](repeating: 0, count: Int(argmax))
         size = buf.count
         mib = [CTL_KERN, KERN_PROCARGS2, pid]
-        guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0, size > 4 else { return "" }
+        guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0, size > 4 else { return [] }
         let argc = buf.withUnsafeBytes { $0.load(as: Int32.self) }
         var i = 4
         while i < size && buf[i] != 0 { i += 1 }      // skip exec path
@@ -164,7 +168,7 @@ public enum Proc {
             if buf[i] == 0 { args.append(String(decoding: buf[start..<i], as: UTF8.self)); start = i + 1 }
             i += 1
         }
-        return args.joined(separator: " ")
+        return args
     }
 
     public struct BoundPort: Equatable {
@@ -267,8 +271,75 @@ let appTools = ["claude", "agy", "electron"]                   // dev *apps*, no
 let wellKnownPorts = [5432: "postgres", 3306: "mysql", 6379: "redis", 27017: "mongo", 9200: "elasticsearch",
                       5672: "rabbitmq", 11211: "memcached", 1433: "sql server"]
 
-func tokens(_ s: String) -> [String] {
-    s.lowercased().split(whereSeparator: { $0 == " " || $0 == "/" }).map(String.init)
+let interpreters: Set = ["node", "ruby", "bun", "deno", "php", "perl", "java"]     // + python*
+let npxLike: Set = ["npx", "bunx", "pnpx"]                                         // <runner> <tool>
+let runnerSubcommands = ["npm": ["exec"], "pnpm": ["exec", "dlx"], "yarn": ["exec", "dlx"], "bun": ["x"],
+                         "uv": ["run"], "poetry": ["run"], "pipenv": ["run"]]       // <runner> <sub> <tool>
+let noScriptFlags: Set = ["-c", "-e", "--eval", "-p", "--print"]                   // inline code follows
+let valueFlags: Set = ["-r", "--require", "--import", "--loader", "--experimental-loader", "-W", "-X",
+                       "-cp", "-classpath", "--class-path", "-p", "--module-path"]
+
+func isInterpreter(_ name: String) -> Bool { interpreters.contains(name) || name.hasPrefix("python") }
+
+/// First operand that is not a flag (or a flag's value); nil if inline code is run instead.
+func firstOperand(_ args: ArraySlice<String>) -> String? {
+    var i = args.startIndex
+    while i < args.endIndex {
+        let a = args[i]
+        if noScriptFlags.contains(a) { return nil }
+        if valueFlags.contains(a) { i += 2; continue }
+        if !a.hasPrefix("-") { return a }
+        i += 1
+    }
+    return nil
+}
+
+/// "vite@5" -> "vite", "@scope/pkg@1" -> "pkg"
+func packageName(_ s: String) -> String {
+    var n = s.hasPrefix("@") ? String(s.split(separator: "/").dropFirst().first ?? "") : s
+    if let at = n.firstIndex(of: "@") { n = String(n[..<at]) }
+    return n
+}
+
+/// A script path names the tool only through node_modules (or its own file name) — never its folders.
+func scriptName(_ path: String) -> String {
+    if let r = path.range(of: "node_modules/.bin/", options: .backwards) {
+        return String(path[r.upperBound...].split(separator: "/").first ?? "")
+    }
+    if let r = path.range(of: "node_modules/", options: .backwards) {
+        let parts = path[r.upperBound...].split(separator: "/").map(String.init)
+        if let first = parts.first { return first.hasPrefix("@") && parts.count > 1 ? parts[1] : first }
+    }
+    return basename(path)
+}
+
+/// What the process *is*: exe basename, argv[0], and the tool/script/module it runs.
+/// Directory names in paths are deliberately ignored ("~/work/astro-dashboard/app.py" is not Astro).
+func identityNames(exe: String, argv: [String]) -> [String] {
+    let exeName = basename(exe).lowercased()
+    var names = [exeName]
+    guard let first = argv.first else { return names }
+    let a0 = basename(first.split(separator: " ").first.map(String.init) ?? first).lowercased()
+    names.append(a0)
+    let rest = argv.dropFirst()
+
+    if npxLike.contains(a0) {
+        if let t = firstOperand(rest) { names.append(packageName(t)) }
+    } else if let subs = runnerSubcommands[a0], let sub = rest.first, subs.contains(sub) {
+        if let t = firstOperand(rest.dropFirst()) { names.append(packageName(t)) }
+    } else if isInterpreter(a0) || isInterpreter(exeName) {
+        let runner = isInterpreter(a0) ? a0 : exeName
+        if runner.hasPrefix("python"), let m = rest.firstIndex(of: "-m"), m + 1 < rest.endIndex {
+            names.append(rest[m + 1])                                   // python -m uvicorn
+        } else if runner == "java" {
+            if let j = rest.firstIndex(of: "-jar"), j + 1 < rest.endIndex { names.append(basename(rest[j + 1])) }
+            else if let main = firstOperand(rest) { names += main.split(separator: ".").map(String.init) }
+        } else {
+            let args = (["bun", "deno"].contains(runner) && rest.first == "run") ? rest.dropFirst() : rest
+            if let script = firstOperand(args) { names.append(scriptName(script)) }
+        }
+    }
+    return names.map { $0.lowercased() }.filter { !$0.isEmpty }
 }
 func matches(_ toks: [String], _ tools: [String]) -> String? {
     for t in toks { for tool in tools where t == tool || t.hasPrefix(tool + ".") || t.hasPrefix(tool + "-") { return tool } }
@@ -286,24 +357,28 @@ func appName(_ exe: String) -> String {
 }
 
 public func classify(_ l: Listener) -> (Kind, String) {
-    let toks = tokens(l.command)
-    let exeName = basename(l.exe).lowercased()
-    let argv0 = basename(l.command.split(separator: " ").first.map(String.init) ?? "").lowercased()
+    let names = identityNames(exe: l.exe, argv: l.argv)
+    let exeName = names[0]
+    let argv0 = names.count > 1 ? names[1] : exeName
 
     if let c = l.container { return (.docker, c) }
     if l.exe.contains("/Docker.app/") || exeName.hasPrefix("com.docker") {
         let guess = wellKnownPorts[l.port].map { "\($0)? · " } ?? ""
         return (.docker, "\(guess)Docker engine")
     }
-    if let db = matches([exeName] + toks, dbNames) { return (.database, db) }
+    // A script run by node/python is not a database just because of its file name; a java main class can be.
+    let dbCandidates = isInterpreter(exeName) && exeName != "java" ? Array(names.prefix(2)) : names
+    if let db = matches(dbCandidates, dbNames) { return (.database, db) }
     // Dev apps & editor helpers (they embed node/java, but you didn't start them).
     if appTools.contains(argv0) || l.exe.contains("/.vscode/extensions/") || l.exe.contains("/.gemini/")
         || (l.exe.contains(".app/") && !backendTools.contains(exeName)) {
         return (.system, appTools.contains(argv0) ? argv0 : appName(l.exe))
     }
     let isOS = ["/System/", "/usr/libexec/", "/usr/sbin/", "/sbin/"].contains(where: l.exe.hasPrefix)
-    if !isOS, let fe = matches(toks, frontendTools) { return (.frontend, fe) }
-    if !isOS, let be = matches([exeName] + toks, backendTools) { return (.backend, be) }
+    // Most specific first: the tool a runtime is running beats the runtime itself (node -> next).
+    let specific = Array(names.dropFirst())
+    if !isOS, let fe = matches(specific, frontendTools) ?? matches([exeName], frontendTools) { return (.frontend, fe) }
+    if !isOS, let be = matches(specific.reversed(), backendTools) ?? matches([exeName], backendTools) { return (.backend, be) }
     return (.system, appName(l.exe))
 }
 
@@ -314,12 +389,14 @@ public func scan(docker: [Int: String]) -> [Listener] {
     for pid in Proc.allPIDs() {
         let ports = Proc.listeningPorts(pid)
         guard !ports.isEmpty, let id = Proc.identity(pid) else { continue }
-        let exe = Proc.exePath(pid), cmd = Proc.commandLine(pid), cwd = Proc.cwd(pid)
+        let exe = Proc.exePath(pid), args = Proc.arguments(pid), cwd = Proc.cwd(pid)
+        let cmd = args.joined(separator: " ")
         var byPort: [Int: Exposure] = [:]
         for p in ports { byPort[p.port] = byPort[p.port].map { $0.widest(p.exposure) } ?? p.exposure }
         for (port, exposure) in byPort {
             var l = Listener(port: port, pid: pid, start: id.start, uid: id.uid, exposed: exposure.isNetworkReachable,
-                             exposure: exposure, exe: exe, command: cmd.isEmpty ? exe : cmd, cwd: cwd, container: docker[port])
+                             exposure: exposure, exe: exe, command: cmd.isEmpty ? exe : cmd,
+                             argv: args.isEmpty ? [exe] : args, cwd: cwd, container: docker[port])
             let (kind, tool) = classify(l)
             l.kind = kind
             let folder = (cwd.hasPrefix(home + "/")) ? basename(cwd) : ""

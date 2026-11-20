@@ -136,3 +136,51 @@ struct ExposureTests {
         #expect(match.exposed)
     }
 }
+
+// MARK: - 2. Classifier
+
+struct ClassifyCase: Sendable, CustomStringConvertible {
+    let exe: String
+    let argv: [String]
+    let kind: Kind
+    let tool: String
+    var description: String { argv.joined(separator: " ") }
+}
+
+@Suite("Phase 1 · Classifier")
+struct ClassifierTests {
+    @Test("Tool comes from exe, argv[0], script, module, node_modules, npx or subcommand", arguments: [
+        ClassifyCase(exe: "/usr/local/bin/node", argv: ["node", "/tmp/project/node_modules/.bin/vite"], kind: .frontend, tool: "vite"),
+        ClassifyCase(exe: "/usr/local/bin/node", argv: ["node", "/tmp/project/node_modules/next/dist/bin/next", "dev"], kind: .frontend, tool: "next"),
+        ClassifyCase(exe: "/usr/local/bin/node", argv: ["node", "/tmp/project/node_modules/@storybook/cli/bin/index.js"], kind: .backend, tool: "node"),
+        ClassifyCase(exe: "/usr/local/bin/node", argv: ["npx", "vite@5", "--port", "5173"], kind: .frontend, tool: "vite"),
+        ClassifyCase(exe: "/usr/local/bin/node", argv: ["pnpm", "exec", "astro", "dev"], kind: .frontend, tool: "astro"),
+        ClassifyCase(exe: "/usr/bin/python3", argv: ["python3", "-m", "uvicorn", "app:app"], kind: .backend, tool: "uvicorn"),
+        ClassifyCase(exe: "/usr/bin/python3", argv: ["python3", "manage.py", "runserver"], kind: .backend, tool: "manage.py"),
+        ClassifyCase(exe: "/usr/local/bin/uv", argv: ["uv", "run", "uvicorn", "main:app"], kind: .backend, tool: "uvicorn"),
+        ClassifyCase(exe: "/usr/local/bin/node", argv: ["node", "-r", "ts-node/register", "server.ts"], kind: .backend, tool: "node"),
+        ClassifyCase(exe: "/usr/bin/java", argv: ["java", "-cp", "/opt/kafka/libs/*", "kafka.Kafka", "server.properties"], kind: .database, tool: "kafka"),
+        ClassifyCase(exe: "/usr/local/bin/node", argv: ["node", "kafka-consumer.js"], kind: .backend, tool: "node"),
+        ClassifyCase(exe: "/usr/local/bin/node", argv: ["next-server (v14.2.3)"], kind: .frontend, tool: "next"),
+        // Folder names must not leak into the result.
+        ClassifyCase(exe: "/usr/local/bin/node", argv: ["node", "/tmp/vite-playground/server.js"], kind: .backend, tool: "node"),
+        ClassifyCase(exe: "/usr/bin/python3", argv: ["python3", "/tmp/postgres-tools/api.py"], kind: .backend, tool: "python3"),
+        ClassifyCase(exe: "/tmp/next-app/bin/server", argv: ["/tmp/next-app/bin/server"], kind: .system, tool: "server"),
+    ])
+    func identity(_ c: ClassifyCase) {
+        let l = Listener(port: 4000, pid: 1234, start: 1, uid: 501, exposed: false, exe: c.exe,
+                         command: c.argv.joined(separator: " "), argv: c.argv, cwd: "/tmp/project")
+        let (kind, tool) = classify(l)
+        #expect(kind == c.kind, "\(c)")
+        #expect(tool == c.tool, "\(c)")
+    }
+
+    @Test("Script name helpers")
+    func helpers() {
+        #expect(scriptName("/a/node_modules/.bin/vite") == "vite")
+        #expect(scriptName("/a/node_modules/@scope/pkg/bin.js") == "pkg")
+        #expect(scriptName("/a/astro-dashboard/app.py") == "app.py")
+        #expect(packageName("@scope/tool@1.2") == "tool")
+        #expect(firstOperand(["-e", "code"]) == nil)
+    }
+}

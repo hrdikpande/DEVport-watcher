@@ -110,9 +110,9 @@ struct PortsCoreTests {
         #expect(classify(listener(from: fixture)).0.rawValue == fixture.expectedKind, "\(fixture.name)")
     }
 
-    // Phase 1 #2 will change this folder-name false positive to Backend/System.
-    @Test("Known classifier bug: path token is treated as Astro", .tags(.knownBug))
-    func knownClassifierFolderNameBug() {
+    // Phase 1 #2: a folder name in a path no longer decides the tool.
+    @Test("Classifier ignores directory names in paths")
+    func classifierIgnoresFolderNames() {
         let fixture = Listener(
             port: 4321,
             pid: 1234,
@@ -125,8 +125,8 @@ struct PortsCoreTests {
             label: ""
         )
 
-        #expect(classify(fixture).0 == .frontend)
-        #expect(classify(fixture).1 == "astro")
+        #expect(classify(fixture).0 == .backend)
+        #expect(classify(fixture).1 == "python3")
     }
 
     // Phase 1 #1: a specific non-loopback bind is reachable from the network.
