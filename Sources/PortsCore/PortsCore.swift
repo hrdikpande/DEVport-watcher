@@ -85,6 +85,7 @@ public struct Listener: Equatable {
     public let argv: [String]       // tool detection only (argv can be faked; never used for safety)
     public let cwd: String
     public var container: String? = nil
+    public var stopped = false      // suspended (SIGSTOP / Ctrl-Z): holds the port but serves nothing
     public var kind: Kind = .system
     public var label = ""
 
@@ -130,6 +131,15 @@ public enum Proc {
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
         guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &bi, size) == size else { return nil }
         return Identity(uid: bi.pbi_uid, start: bi.pbi_start_tvsec &* 1_000_000 &+ bi.pbi_start_tvusec)
+    }
+
+    /// True when the process is suspended (kinfo_proc p_stat == SSTOP).
+    public static func isStopped(_ pid: pid_t) -> Bool {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return false }
+        return Int32(info.kp_proc.p_stat) == SSTOP
     }
 
     public static func exePath(_ pid: pid_t) -> String {
@@ -420,7 +430,7 @@ public func scan(docker: [Int: String]) -> [Listener] {
         let ports = Proc.listeningPorts(pid)
         guard !ports.isEmpty, let id = Proc.identity(pid) else { continue }
         let exe = Proc.exePath(pid), args = Proc.arguments(pid), cwd = Proc.cwd(pid)
-        let cmd = args.joined(separator: " ")
+        let cmd = args.joined(separator: " "), stopped = Proc.isStopped(pid)
         var byPort: [Int: Exposure] = [:]
         for p in ports { byPort[p.port] = byPort[p.port].map { $0.widest(p.exposure) } ?? p.exposure }
         for (port, exposure) in byPort {
@@ -428,6 +438,7 @@ public func scan(docker: [Int: String]) -> [Listener] {
                              exposure: exposure, exe: exe, command: cmd.isEmpty ? exe : cmd,
                              argv: args.isEmpty ? [exe] : args, cwd: cwd,
                              container: containerName(exe: exe, port: port, docker: docker))
+            l.stopped = stopped
             let (kind, tool) = classify(l)
             l.kind = kind
             let folder = (cwd.hasPrefix(home + "/")) ? basename(cwd) : ""
@@ -464,6 +475,7 @@ public func safeTerminate(pid: pid_t, start: UInt64) -> KillError? {
     guard let id = Proc.identity(pid), id.start == start else { return .gone }
     guard id.uid == getuid() else { return .notYours }
     if kill(pid, SIGTERM) != 0 { return .failed(String(cString: strerror(errno))) }
+    if Proc.isStopped(pid) { kill(pid, SIGCONT) }                // a suspended process can't act on SIGTERM
     for _ in 0..<20 {
         usleep(100_000)
         if Proc.identity(pid)?.start != start { return nil }       // exited

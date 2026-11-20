@@ -148,6 +148,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             text.append(NSAttributedString(string: "  LAN", attributes: [
                 .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemOrange]))
         }
+        if l.stopped {
+            text.append(NSAttributedString(string: "  STOPPED", attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemYellow]))
+        }
         item.attributedTitle = text
         item.toolTip = tilde(l.command)
 
@@ -155,6 +159,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sub.addItem(infoItem("PID \(l.pid)", symbol: "number"))
         sub.addItem(infoItem(l.exposed ? "Reachable from your network (\(l.exposure.address))" : "Local only (\(l.exposure.address))",
                              symbol: l.exposed ? "wifi.exclamationmark" : "lock"))
+        if l.stopped {
+            sub.addItem(infoItem("Stopped (suspended) — holds the port but answers nothing", symbol: "pause.circle"))
+        }
         if !l.cwd.isEmpty && l.cwd != "/" { sub.addItem(infoItem(tilde(l.cwd), symbol: "folder")) }
         let cmd = tilde(l.command)
         sub.addItem(infoItem(cmd.count > 90 ? String(cmd.prefix(89)) + "…" : cmd, symbol: "terminal"))

@@ -243,3 +243,25 @@ struct ContainerTests {
         #expect(mine.allSatisfy { $0.container == nil && $0.kind != .docker })
     }
 }
+
+// MARK: - 6. Process state
+
+@Suite("Phase 1 · Process state")
+struct ProcessStateTests {
+    @Test("kinfo_proc reports a suspended process; the ladder resumes and stops it")
+    func stoppedProcess() throws {
+        let child = try spawn("/bin/sleep", ["30"])
+        defer { if child.isRunning { child.terminate() } }
+        let pid = child.processIdentifier
+        #expect(!Proc.isStopped(pid))
+
+        kill(pid, SIGSTOP)
+        #expect(waitFor { Proc.isStopped(pid) })
+
+        let id = try #require(Proc.identity(pid))
+        #expect(safeTerminate(pid: pid, start: id.start) == nil)
+        child.waitUntilExit()
+        #expect(child.terminationReason == .uncaughtSignal)
+        #expect(child.terminationStatus == SIGTERM)     // exited on SIGTERM after SIGCONT, not SIGKILL
+    }
+}
