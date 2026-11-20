@@ -84,6 +84,7 @@ public struct Listener: Equatable {
     public let argv: [String]       // tool detection only (argv can be faked; never used for safety)
     public let cwd: String
     public var container: String? = nil
+    public var web: WebScheme? = nil     // set by probeWeb (menu open only); nil = not HTTP-like
     public var stopped = false      // suspended (SIGSTOP / Ctrl-Z): holds the port but serves nothing
     public var kind: Kind = .system
     public var label = ""
@@ -419,6 +420,82 @@ public func classify(_ l: Listener) -> (Kind, String) {
     if !isOS, let fe = matches(specific, frontendTools) ?? matches([exeName], frontendTools) { return (.frontend, fe) }
     if !isOS, let be = matches(specific.reversed(), backendTools) ?? matches([exeName], backendTools) { return (.backend, be) }
     return (.system, appName(l.exe))
+}
+
+// MARK: - Web probe (menu open only; loopback or the listener's own address; short timeout; read-only)
+
+public enum WebScheme: String, Sendable { case http, https }
+
+/// Decide from a server's first bytes whether it speaks HTTP, HTTPS, or neither.
+public func webScheme(fromReply b: [UInt8]) -> WebScheme? {
+    if b.starts(with: Array("HTTP/".utf8)) {
+        let text = String(decoding: b, as: UTF8.self).lowercased()   // nginx: "plain HTTP request was sent to HTTPS port"
+        return text.contains("https port") || text.contains("speak https") ? .https : .http
+    }
+    if b.count >= 2, b[0] == 0x15 || b[0] == 0x16, b[1] == 0x03 { return .https }   // TLS alert / handshake record
+    return nil
+}
+
+let httpProbe = Array("HEAD / HTTP/1.0\r\nHost: localhost\r\nUser-Agent: Ports\r\n\r\n".utf8)
+/// Minimal TLS 1.2 ClientHello. Any TLS server answers with a handshake (0x16) or an alert (0x15).
+let tlsProbe: [UInt8] = [0x16, 0x03, 0x01, 0x00, 0x33,                  // record: handshake, 51 bytes
+                         0x01, 0x00, 0x00, 0x2f, 0x03, 0x03]            // ClientHello, 47 bytes, TLS 1.2
+    + [UInt8](repeating: 0x2a, count: 32)                               // random
+    + [0x00, 0x00, 0x06, 0xc0, 0x2f, 0x00, 0x9c, 0x00, 0x2f,            // no session; 3 cipher suites
+       0x01, 0x00, 0x00, 0x00]                                          // null compression; no extensions
+
+/// Send `payload`, return the first bytes of the reply ([] if none), or nil if we couldn't connect.
+func exchange(host: String, port: Int, payload: [UInt8], timeout: TimeInterval) -> [UInt8]? {
+    var hints = addrinfo()
+    hints.ai_flags = AI_NUMERICHOST
+    hints.ai_socktype = SOCK_STREAM
+    var res: UnsafeMutablePointer<addrinfo>?
+    guard getaddrinfo(host, String(port), &hints, &res) == 0, let ai = res else { return nil }
+    defer { freeaddrinfo(res) }
+    let fd = socket(ai.pointee.ai_family, SOCK_STREAM, 0)
+    guard fd >= 0 else { return nil }
+    defer { close(fd) }
+    var one: Int32 = 1
+    setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
+    _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+    let ms = Int32(timeout * 1000)
+    if connect(fd, ai.pointee.ai_addr, ai.pointee.ai_addrlen) != 0 {
+        guard errno == EINPROGRESS else { return nil }
+        var p = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        var err: Int32 = 0, len = socklen_t(MemoryLayout<Int32>.size)
+        guard poll(&p, 1, ms) == 1, getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) == 0, err == 0 else { return nil }
+    }
+    guard payload.withUnsafeBytes({ send(fd, $0.baseAddress, payload.count, 0) }) == payload.count else { return [] }
+    var p = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+    guard poll(&p, 1, ms) == 1 else { return [] }
+    var buf = [UInt8](repeating: 0, count: 512)
+    let n = recv(fd, &buf, buf.count, 0)
+    return n > 0 ? Array(buf.prefix(n)) : []
+}
+
+/// Worth probing: dev servers and published container ports (never databases, system or suspended processes).
+public func isWebCandidate(_ l: Listener) -> Bool {
+    !l.stopped && (l.container != nil || l.kind == .frontend || l.kind == .backend)
+}
+
+/// Plain HTTP first; if the server says nothing, try a TLS hello.
+public func probeWeb(_ l: Listener, timeout: TimeInterval = 0.3) -> WebScheme? {
+    let hosts: [String]
+    if case .specific(let ip) = l.exposure { hosts = [ip] } else { hosts = ["127.0.0.1", "::1"] }
+    for host in hosts {
+        guard let reply = exchange(host: host, port: l.port, payload: httpProbe, timeout: timeout) else { continue }
+        if let scheme = webScheme(fromReply: reply) { return scheme }
+        guard reply.isEmpty else { return nil }                 // spoke, but not HTTP or TLS
+        let tls = exchange(host: host, port: l.port, payload: tlsProbe, timeout: timeout) ?? []
+        return webScheme(fromReply: tls) == .https ? .https : nil
+    }
+    return nil
+}
+
+public func browserURL(_ l: Listener, _ scheme: WebScheme) -> URL? {
+    var host = "localhost"
+    if case .specific(let ip) = l.exposure { host = ip.contains(":") ? "[\(ip)]" : ip }
+    return URL(string: "\(scheme.rawValue)://\(host):\(l.port)")
 }
 
 // MARK: - System processes on dev ports

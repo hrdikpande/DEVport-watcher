@@ -355,3 +355,50 @@ struct KnownPortsTests {
         #expect(KnownPorts.explanation(elsewhere) == nil)
     }
 }
+
+// MARK: - 10. Open in Browser
+
+@Suite("Phase 1 · Web probe")
+struct WebProbeTests {
+    @Test("Reply bytes decide http, https or neither")
+    func replies() {
+        #expect(webScheme(fromReply: Array("HTTP/1.1 200 OK\r\n".utf8)) == .http)
+        #expect(webScheme(fromReply: Array("HTTP/1.1 400 Bad Request\r\n\r\nThe plain HTTP request was sent to HTTPS port".utf8)) == .https)
+        #expect(webScheme(fromReply: [0x15, 0x03, 0x03, 0x00, 0x02, 0x02, 0x46]) == .https)
+        #expect(webScheme(fromReply: [0x16, 0x03, 0x03, 0x00, 0x40]) == .https)
+        #expect(webScheme(fromReply: Array("-ERR unknown command 'HEAD'\r\n".utf8)) == nil)
+        #expect(webScheme(fromReply: []) == nil)
+        #expect(tlsProbe.count == 5 + 0x33)
+    }
+
+    func probe(_ reply: [UInt8]) throws -> WebScheme? {
+        let server = try TestListener()
+        server.serve(reply)
+        let l = Listener(port: server.port, pid: getpid(), start: 1, uid: getuid(), exposed: false,
+                         exe: "/usr/local/bin/node", command: "node server.js", cwd: "/tmp", kind: .backend)
+        return probeWeb(l)
+    }
+
+    @Test("Real loopback servers: HTTP, TLS, silent, non-HTTP")
+    func servers() throws {
+        #expect(try probe(Array("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".utf8)) == .http)
+        #expect(try probe([0x15, 0x03, 0x03, 0x00, 0x02, 0x02, 0x46]) == .https)
+        #expect(try probe([]) == nil)
+        #expect(try probe(Array("-ERR unknown\r\n".utf8)) == nil)
+    }
+
+    @Test("Only dev servers and containers are probed; URL uses the real address")
+    func candidates() {
+        var l = fixture("/usr/local/bin/vite", "vite", port: 5173, kind: .frontend)
+        #expect(isWebCandidate(l))
+        #expect(browserURL(l, .https)?.absoluteString == "https://localhost:5173")
+        l.exposure = .specific("192.168.1.20")
+        #expect(browserURL(l, .http)?.absoluteString == "http://192.168.1.20:5173")
+        l.exposure = .specific("fe80::1")
+        #expect(browserURL(l, .http)?.absoluteString == "http://[fe80::1]:5173")
+        l.stopped = true
+        #expect(!isWebCandidate(l))
+        #expect(!isWebCandidate(fixture("/opt/homebrew/bin/postgres", "postgres", port: 5432, kind: .database)))
+        #expect(!isWebCandidate(fixture("/usr/libexec/rapportd", "rapportd", kind: .system)))
+    }
+}

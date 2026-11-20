@@ -34,6 +34,27 @@ func wrap(_ text: String, _ width: Int) -> [String] {
     return line.isEmpty ? lines : lines + [line]
 }
 
+/// Web-probe results per process instance (pid + start time + port), shared with the scan queue.
+final class WebCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var known: [String: WebScheme?] = [:]
+
+    /// Fill `web` from the cache; with `probe`, probe candidates not seen before (in parallel).
+    func apply(_ ls: [Listener], probe: Bool) -> [Listener] {
+        func key(_ l: Listener) -> String { "\(l.pid)-\(l.start)-\(l.port)" }
+        if probe {
+            lock.lock(); let todo = ls.filter { isWebCandidate($0) && known[key($0)] == nil }; lock.unlock()
+            var found = [WebScheme?](repeating: nil, count: todo.count)
+            found.withUnsafeMutableBufferPointer { out in
+                DispatchQueue.concurrentPerform(iterations: todo.count) { out[$0] = probeWeb(todo[$0]) }
+            }
+            lock.lock(); for (l, w) in zip(todo, found) { known[key(l)] = .some(w) }; lock.unlock()
+        }
+        lock.lock(); defer { lock.unlock() }
+        return ls.map { var l = $0; l.web = known[key($0)] ?? nil; return l }
+    }
+}
+
 // MARK: - App
 
 @MainActor
@@ -43,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let scanQueue = DispatchQueue(label: "local.portwatch.scan", qos: .userInitiated)
     var listeners: [Listener] = []
     var docker: [Int: String] = [:]
+    let web = WebCache()
     var menuOpen = false
     var scanning = false
     var filter = Filter(rawValue: UserDefaults.standard.integer(forKey: "filter")) ?? .developer {
@@ -83,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 map = needsContainerQuery(result) ? dockerPorts() : [:]
                 result = scan(docker: map)
             }
+            result = self.web.apply(result, probe: withDocker)
             RunLoop.main.perform(inModes: [.common]) {
                 MainActor.assumeIsolated {
                     self.scanning = false
@@ -179,9 +202,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let cmd = tilde(l.command)
         sub.addItem(infoItem(cmd.count > 90 ? String(cmd.prefix(89)) + "…" : cmd, symbol: "terminal"))
         sub.addItem(.separator())
-        sub.addItem(ActionItem("Open in Browser", symbol: "safari", key: "") {
-            NSWorkspace.shared.open(URL(string: "http://localhost:\(l.port)")!)
-        })
+        if let scheme = l.web, let url = browserURL(l, scheme) {
+            sub.addItem(ActionItem("Open in Browser", symbol: "safari", key: "") { NSWorkspace.shared.open(url) })
+        }
         if !l.cwd.isEmpty && l.cwd != "/" {
             sub.addItem(ActionItem("Show Folder in Finder", symbol: "folder", key: "") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: l.cwd)])
@@ -209,7 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func afterWork(_ work: @escaping () -> Void, then done: @escaping ([Listener]) -> Void) {
         scanQueue.async {
             work()
-            let fresh = scanWithContainers()
+            let fresh = self.web.apply(scanWithContainers(), probe: false)
             RunLoop.main.perform(inModes: [.common]) {
                 MainActor.assumeIsolated {
                     if fresh != self.listeners { self.listeners = fresh; self.render() }
