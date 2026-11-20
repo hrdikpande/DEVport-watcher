@@ -82,6 +82,23 @@ func detailLines(_ l: Listener) -> [(text: String, symbol: String?)] {
     return lines
 }
 
+/// Framework, confidence, safety tier, known port and note.
+func classificationLines(_ l: Listener) -> [(text: String, symbol: String?)] {
+    var lines: [(String, String?)] = []
+    let what = l.framework ?? l.kind.title
+    lines.append(("\(what) · \(l.confidence)% confident", "checkmark.seal"))
+    switch l.tier {
+    case .safe: lines.append(("Dev server you started: safe to stop", "checkmark.shield"))
+    case .warning: lines.append(("Stop with care: \(l.baseKind == .database ? "may lose unsaved data" : "an app, service or engine")", "exclamationmark.shield"))
+    case .blocked: lines.append(("Protected: system or another user", "lock.shield"))
+    }
+    if KnownPorts.explanation(l) == nil, let k = KnownPorts.info(port: l.port) {
+        lines.append(("Port \(l.port): \(k.owner) — \(k.explanation)", "info.circle"))
+    }
+    if let note = l.override?.note { lines.append(("Note: " + note, "note.text")) }
+    return lines
+}
+
 // MARK: - App
 
 @MainActor
@@ -93,6 +110,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var docker: [Int: String] = [:]
     let web = WebCache()
     let stops = StopRegistry()
+    let overrides = OverrideStore()
+    var icons: [String: NSImage] = [:]
+    var showHidden = false
     var stopAlerts: [String: NSWindow] = [:]     // the one open alert of each running stop flow
     var menuOpen = false
     var scanning = false
@@ -136,7 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 map = needsContainerQuery(result) ? dockerPorts() : [:]
                 result = scan(docker: map, sampleCPU: probe)
             }
-            result = self.web.apply(result, probe: probe)
+            result = applyOverrides(self.web.apply(result, probe: probe), self.overrides)
             RunLoop.main.perform(inModes: [.common]) {
                 MainActor.assumeIsolated {
                     self.scanning = false
@@ -150,7 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func render() {
-        let n = listeners.filter { $0.kind.isDeveloper }.count
+        let n = listeners.filter { $0.kind.isDeveloper && $0.override?.hidden != true }.count
         status.button?.title = n > 0 ? " \(n)" : ""
         if menuOpen || menu.items.isEmpty { build() }
     }
@@ -164,15 +184,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func build() {
         menu.removeAllItems()
+        let hiddenCount = listeners.filter { $0.override?.hidden == true }.count
         let shown = listeners.filter {
-            switch filter { case .developer: showsInDeveloperView($0); case .system: !$0.kind.isDeveloper; case .all: true }
+            if $0.override?.hidden == true && !showHidden { return false }
+            return switch filter { case .developer: showsInDeveloperView($0); case .system: !$0.kind.isDeveloper; case .all: true }
         }
 
-        let show = NSMenuItem(title: "Show: " + ["Developer", "System & Apps", "All"][filter.rawValue], action: nil, keyEquivalent: "")
+        let show = NSMenuItem(title: "Show: " + ["Developer", "Apps & System", "All"][filter.rawValue], action: nil, keyEquivalent: "")
         show.image = NSImage(systemSymbolName: "line.3.horizontal.decrease.circle", accessibilityDescription: nil)
         let sub = NSMenu()
-        for (f, name, key) in [(Filter.developer, "Developer — frontend, backend, DB, Docker", "1"),
-                               (.system, "System & Apps", "2"), (.all, "All", "3")] {
+        for (f, name, key) in [(Filter.developer, "Developer — servers, databases, containers, tunnels, AI", "1"),
+                               (.system, "Apps, services & system", "2"), (.all, "All", "3")] {
             let item = ActionItem(name, key: key) { [weak self] in self?.filter = f }
             item.state = filter == f ? .on : .off
             sub.addItem(item)
@@ -184,8 +206,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(.separator())
             menu.addItem(infoItem(filter == .developer ? "No dev servers running" : "Nothing listening", symbol: "checkmark.circle"))
         }
+        let favorites = shown.filter { $0.override?.favorite == true }
+        if !favorites.isEmpty {
+            menu.addItem(.separator())
+            menu.addItem(NSMenuItem.sectionHeader(title: "Favorites · \(favorites.count)"))
+            for l in favorites { menu.addItem(row(l)) }
+        }
         for kind in Kind.allCases {
-            let rows = shown.filter { $0.kind == kind }
+            let rows = shown.filter { $0.kind == kind && $0.override?.favorite != true }
             guard !rows.isEmpty else { continue }
             menu.addItem(.separator())
             menu.addItem(NSMenuItem.sectionHeader(title: "\(kind.title) · \(rows.count)"))
@@ -193,6 +221,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
+        if hiddenCount > 0 {
+            let toggle = ActionItem(showHidden ? "Hide Hidden Rows" : "Show Hidden (\(hiddenCount))", symbol: "eye", key: "") {
+                [weak self] in self?.showHidden.toggle(); self?.build()
+            }
+            menu.addItem(toggle)
+        }
         menu.addItem(ActionItem("Kill by Port…", symbol: "number", key: "k") { [weak self] in self?.killByPort() })
         menu.addItem(ActionItem("Kill by PID…", symbol: "xmark.circle", key: "k", mods: [.command, .shift]) { [weak self] in self?.killByPID() })
         menu.addItem(.separator())
@@ -201,7 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func row(_ l: Listener) -> NSMenuItem {
         let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        item.image = NSImage(systemSymbolName: l.kind.symbol, accessibilityDescription: l.kind.title)
+        item.image = icon(for: l)
         let label = l.label.count > 40 ? String(l.label.prefix(39)) + "…" : l.label
         let text = NSMutableAttributedString(string: ":\(l.port)".padding(toLength: 7, withPad: " ", startingAt: 0),
                                              attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold)])
@@ -239,6 +273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let cmd = tilde(l.command)
         sub.addItem(infoItem(cmd.count > 90 ? String(cmd.prefix(89)) + "…" : cmd, symbol: "terminal"))
         for line in detailLines(l) { sub.addItem(infoItem(line.text, symbol: line.symbol)) }
+        for line in classificationLines(l) { sub.addItem(infoItem(line.text, symbol: line.symbol)) }
         sub.addItem(.separator())
         if let link = KnownPorts.settingsAction(l) {           // the fix that frees the port: listed first
             sub.addItem(ActionItem(link.title, symbol: "gearshape", key: "") { NSWorkspace.shared.open(link.url) })
@@ -265,7 +300,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             sub.addItem(ActionItem(l.kind == .database ? "Shut Down…" : "Kill Process", symbol: "xmark.octagon", key: "") { [weak self] in self?.confirmKill(l) })
         }
+        sub.addItem(.separator())
+        sub.addItem(customizeItem(l))
         item.submenu = sub
+        return item
+    }
+
+    // MARK: Overrides and icons
+
+    func icon(for l: Listener) -> NSImage? {
+        let source = iconSource(l)
+        let key: String
+        switch source { case .app(let p), .favicon(let p): key = p; case .symbol(let s): key = "sf:" + s }
+        if let hit = icons[key] { return hit }
+        var img: NSImage?
+        switch source {
+        case .app(let path): img = NSWorkspace.shared.icon(forFile: path)
+        case .favicon(let path): img = NSImage(contentsOfFile: path)
+        case .symbol(let name): img = NSImage(systemSymbolName: name, accessibilityDescription: l.kind.title)
+        }
+        if case .symbol = source {} else { img?.size = NSSize(width: 16, height: 16) }
+        img?.accessibilityDescription = l.kind.title
+        icons[key] = img
+        return img
+    }
+
+    func customize(_ l: Listener, _ change: @escaping (inout Override) -> Void) {
+        do { try overrides.update(serviceSignature(l), change) } catch { alert("Couldn't save the change", "\(error)") }
+        refresh(withDocker: false)
+    }
+
+    func customizeItem(_ l: Listener) -> NSMenuItem {
+        let o = l.override ?? Override()
+        let item = NSMenuItem(title: "Customize", action: nil, keyEquivalent: "")
+        item.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: nil)
+        let m = NSMenu()
+        m.addItem(ActionItem("Rename…", symbol: "pencil", key: "") { [weak self] in
+            guard let name = self?.textPrompt("Rename \(l.label)", "Shown instead of the detected name. Leave empty to reset.",
+                                               initial: o.name ?? "") else { return }
+            self?.customize(l) { $0.name = name.isEmpty ? nil : name }
+        })
+        let move = NSMenuItem(title: "Move to", action: nil, keyEquivalent: "")
+        move.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+        let kinds = NSMenu()
+        for k in Kind.allCases {
+            let i = ActionItem(k.title, key: "") { [weak self] in self?.customize(l) { $0.kind = k == l.baseKind ? nil : k } }
+            i.state = l.kind == k ? .on : .off
+            kinds.addItem(i)
+        }
+        move.submenu = kinds
+        m.addItem(move)
+        m.addItem(ActionItem("Note…", symbol: "note.text", key: "") { [weak self] in
+            guard let note = self?.textPrompt("Note for \(l.label)", "Shown in the row's details.", initial: o.note ?? "") else { return }
+            self?.customize(l) { $0.note = note.isEmpty ? nil : note }
+        })
+        m.addItem(ActionItem(o.linkedApp == nil ? "Link to App…" : "Unlink App", symbol: "link", key: "") { [weak self] in
+            if o.linkedApp != nil { self?.customize(l) { $0.linkedApp = nil }; return }
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.application]
+            panel.directoryURL = URL(fileURLWithPath: "/Applications")
+            NSApp.activate()
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            self?.customize(l) { $0.linkedApp = url.path }
+        })
+        m.addItem(.separator())
+        for (title, symbol, flag) in [("Favorite", "star", \Override.favorite), ("Hide", "eye.slash", \Override.hidden),
+                                      ("Mute Notifications", "bell.slash", \Override.muted)] {
+            let i = ActionItem(title, symbol: symbol, key: "") { [weak self] in self?.customize(l) { $0[keyPath: flag].toggle() } }
+            i.state = o[keyPath: flag] ? .on : .off
+            m.addItem(i)
+        }
+        if !o.isEmpty {
+            m.addItem(.separator())
+            m.addItem(ActionItem("Reset Customizations", symbol: "arrow.uturn.backward", key: "") { [weak self] in
+                self?.customize(l) { $0 = Override() }
+            })
+        }
+        item.submenu = m
         return item
     }
 
@@ -275,7 +386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func afterWork(_ work: @escaping () -> Void, then done: @escaping ([Listener]) -> Void) {
         scanQueue.async {
             work()
-            let fresh = self.web.apply(scanWithContainers(), probe: false)
+            let fresh = applyOverrides(self.web.apply(scanWithContainers(), probe: false), self.overrides)
             RunLoop.main.perform(inModes: [.common]) {
                 MainActor.assumeIsolated {
                     if fresh != self.listeners { self.listeners = fresh; self.render() }
@@ -445,6 +556,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         a.messageText = title
         a.informativeText = text
         _ = present(a, key: key)
+    }
+
+    func textPrompt(_ title: String, _ text: String, initial: String) -> String? {
+        NSApp.activate()
+        let a = NSAlert()
+        a.messageText = title
+        a.informativeText = text
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.stringValue = initial
+        a.accessoryView = field
+        a.addButton(withTitle: "Save")
+        a.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
+        a.window.initialFirstResponder = field
+        guard a.runModal() == .alertFirstButtonReturn else { return nil }
+        return String(field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
     }
 
     func prompt(_ title: String, _ text: String) -> String? {
