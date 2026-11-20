@@ -4,14 +4,7 @@ import PortsCore
 let arguments = Array(CommandLine.arguments.dropFirst())
 
 if arguments.isEmpty || arguments == ["list"] || arguments == ["--list"] {
-    for listener in scanWithContainers() {
-        print(
-            ":\(listener.port)".padding(toLength: 7, withPad: " ", startingAt: 0),
-            "\(listener.pid)".padding(toLength: 7, withPad: " ", startingAt: 0),
-            listener.kind.title.padding(toLength: 14, withPad: " ", startingAt: 0),
-            (listener.exposed ? "LAN " : "    ") + listener.label
-        )
-    }
+    for listener in scanWithContainers() { print(listRow(listener)) }
     exit(0)
 }
 

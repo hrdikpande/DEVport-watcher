@@ -371,12 +371,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 // `Ports --list` prints the table in Terminal (handy for checking classification).
 if CommandLine.arguments.contains("--list") {
     let t0 = Date()
-    for l in scanWithContainers() {
-        print(":\(l.port)".padding(toLength: 7, withPad: " ", startingAt: 0),
-              "\(l.pid)".padding(toLength: 7, withPad: " ", startingAt: 0),
-              l.kind.title.padding(toLength: 14, withPad: " ", startingAt: 0),
-              (l.exposed ? "LAN " : "    ") + l.label)
-    }
+    for l in scanWithContainers() { print(listRow(l)) }
     let t1 = Date()
     _ = scan(docker: [:])
     print(String(format: "\nscan (no docker): %.0f ms · with docker: %.0f ms", Date().timeIntervalSince(t1) * 1000, t1.timeIntervalSince(t0) * 1000))

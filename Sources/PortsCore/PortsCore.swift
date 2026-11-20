@@ -566,6 +566,14 @@ public func scan(docker: [Int: String]) -> [Listener] {
     return out.sorted { ($0.kind.rawValue, $0.port, $0.pid) < ($1.kind.rawValue, $1.port, $1.pid) }
 }
 
+/// One `ports list` row; the LAN and STOPPED badges match the menu.
+public func listRow(_ l: Listener) -> String {
+    [":\(l.port)".padding(toLength: 7, withPad: " ", startingAt: 0),
+     "\(l.pid)".padding(toLength: 7, withPad: " ", startingAt: 0),
+     l.kind.title.padding(toLength: 14, withPad: " ", startingAt: 0),
+     (l.exposed ? "LAN " : "    ") + l.label + (l.stopped ? "  STOPPED" : "")].joined(separator: " ")
+}
+
 /// One fresh scan with container labels queried in the same pass (never a stale port map).
 public func scanWithContainers() -> [Listener] {
     let first = scan(docker: [:])

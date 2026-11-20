@@ -435,3 +435,30 @@ struct WebProbeTests {
         #expect(!isWebCandidate(fixture("/usr/libexec/rapportd", "rapportd", kind: .system)))
     }
 }
+
+// MARK: - ports list
+
+@Suite("Phase 1 · ports list")
+struct ListRowTests {
+    @Test("Rows keep the recorded shape and add the STOPPED badge")
+    func rows() {
+        var l = fixture("/usr/bin/python3", "python3 app.py", port: 8787, kind: .backend)
+        l.label = "python3"
+        #expect(listRow(l) == ":8787   1234    Backend            python3")
+        l.exposure = .allInterfaces
+        l.stopped = true
+        #expect(listRow(l) == ":8787   1234    Backend        LAN python3  STOPPED")
+    }
+
+    @Test("A suspended process shows STOPPED in a real scan")
+    func liveStopped() throws {
+        let port = try TestListener().port                 // a free port (socket closed again at once)
+        let child = try spawn("/usr/bin/nc", ["-l", "127.0.0.1", "\(port)"])
+        defer { kill(child.processIdentifier, SIGCONT); child.terminate(); child.waitUntilExit() }
+        #expect(waitFor { Proc.listeningPorts(child.processIdentifier).contains { $0.port == port } })
+        kill(child.processIdentifier, SIGSTOP)
+        _ = waitFor { Proc.isStopped(child.processIdentifier) }
+        let row = try #require(scan(docker: [:]).first { $0.pid == child.processIdentifier })
+        #expect(listRow(row).hasSuffix("STOPPED"))
+    }
+}
