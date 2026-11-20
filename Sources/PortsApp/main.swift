@@ -51,8 +51,35 @@ final class WebCache: @unchecked Sendable {
             lock.lock(); for (l, w) in zip(todo, found) { known[key(l)] = .some(w) }; lock.unlock()
         }
         lock.lock(); defer { lock.unlock() }
+        let live = Set(ls.map(key))
+        known = known.filter { live.contains($0.key) }      // forget exited processes (bounded memory)
         return ls.map { var l = $0; l.web = known[key($0)] ?? nil; return l }
     }
+}
+
+func copyToPasteboard(_ text: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(text, forType: .string)
+}
+
+/// Process detail rows: uptime, memory, CPU, connections, workers, launcher chain.
+func detailLines(_ l: Listener) -> [(text: String, symbol: String?)] {
+    var lines: [(String, String?)] = []
+    var stats = [formatUptime(uptimeSeconds(start: l.start))]
+    if l.memory > 0 { stats.append(formatBytes(l.memory)) }
+    if let cpu = l.cpuPercent { stats.append(String(format: "%.1f%% CPU", cpu)) }
+    lines.append((stats.joined(separator: " · "), "clock"))
+    lines.append((l.connections == 0 ? "Idle — no open connections" : "\(l.connections) open connection\(l.connections == 1 ? "" : "s")",
+                  "arrow.left.arrow.right"))
+    if !l.workers.isEmpty {
+        lines.append(("\(l.workers.count) worker\(l.workers.count == 1 ? "" : "s"): PID " + l.workers.map(String.init).joined(separator: ", "),
+                      "square.stack.3d.up"))
+    }
+    if !l.chain.isEmpty {
+        let chain = l.chain.prefix(6).map { "\($0.name) (\($0.pid))" }.joined(separator: " ← ")
+        lines.append(("Started by " + chain + (l.chain.count > 6 ? " ← …" : ""), "arrow.turn.left.up"))
+    }
+    return lines
 }
 
 // MARK: - App
@@ -103,10 +130,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Menu open: query containers in this same scan. Background poll: reuse the last map —
             // scan() only applies it to container-runtime proxies, so a native process never inherits it.
             var map = cachedDocker
+            // CPU % is sampled only while the menu is open, on the scan whose result is shown.
             var result = scan(docker: map)
             if withDocker {
                 map = needsContainerQuery(result) ? dockerPorts() : [:]
-                result = scan(docker: map)
+                result = scan(docker: map, sampleCPU: probe)
             }
             result = self.web.apply(result, probe: probe)
             RunLoop.main.perform(inModes: [.common]) {
@@ -184,6 +212,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             text.append(NSAttributedString(string: "  LAN", attributes: [
                 .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemOrange]))
         }
+        if !l.workers.isEmpty {
+            text.append(NSAttributedString(string: "  ×\(l.workers.count + 1)", attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.secondaryLabelColor]))
+        }
         if l.stopped {
             text.append(NSAttributedString(string: "  STOPPED", attributes: [
                 .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemYellow]))
@@ -202,9 +234,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if l.stopped {
             sub.addItem(infoItem("Stopped (suspended) — holds the port but answers nothing", symbol: "pause.circle"))
         }
+        if let p = l.project { sub.addItem(infoItem(p.displayWithBranch, symbol: "folder.badge.gearshape")) }
         if !l.cwd.isEmpty && l.cwd != "/" { sub.addItem(infoItem(tilde(l.cwd), symbol: "folder")) }
         let cmd = tilde(l.command)
         sub.addItem(infoItem(cmd.count > 90 ? String(cmd.prefix(89)) + "…" : cmd, symbol: "terminal"))
+        for line in detailLines(l) { sub.addItem(infoItem(line.text, symbol: line.symbol)) }
         sub.addItem(.separator())
         if let link = KnownPorts.settingsAction(l) {           // the fix that frees the port: listed first
             sub.addItem(ActionItem(link.title, symbol: "gearshape", key: "") { NSWorkspace.shared.open(link.url) })
@@ -217,10 +251,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: l.cwd)])
             })
         }
-        sub.addItem(ActionItem("Copy PID", symbol: "doc.on.doc", key: "") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString("\(l.pid)", forType: .string)
-        })
+        sub.addItem(ActionItem("Copy PID", symbol: "doc.on.doc", key: "") { copyToPasteboard("\(l.pid)") })
+        if l.uid == getuid() && !l.argv.isEmpty {
+            sub.addItem(ActionItem("Copy Start Command", symbol: "doc.on.clipboard", key: "") { copyToPasteboard(l.startCommand) })
+        }
         sub.addItem(.separator())
         if let c = l.container {
             sub.addItem(ActionItem("Stop Container “\(c)”", symbol: "stop.circle", key: "") { [weak self] in self?.stopContainer(c, port: l.port) })
