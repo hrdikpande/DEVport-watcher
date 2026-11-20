@@ -27,9 +27,10 @@ All notable changes to this project will be documented here.
   all and lets you choose.
 - Suspended processes show a Stopped badge. Stopping one sends SIGTERM, then
   SIGCONT so it can exit.
-- Safety tiers: dev servers get 2 s before SIGKILL. Databases and brokers get a
-  data-loss warning and 15 s, and are never force-killed automatically; Force
-  Quit is a separate, explicit step.
+- Safety tiers: only Frontend/Backend dev servers are SIGKILLed automatically,
+  after 2 s. Apps and helpers (System & Apps) and the container engine get 5 s;
+  databases and brokers get a data-loss warning and 15 s. None of those is ever
+  force-killed automatically; Force Quit is a separate, explicit step.
 - After every stop, Ports rescans and reports "Port N is free" or
   "Still listening: …".
 - System processes on common dev ports are shown in the Developer view with an
@@ -56,6 +57,6 @@ All notable changes to this project will be documented here.
 - Row detail and the Kill by Port chooser show each process's own bind
   addresses.
 - The AirPlay Receiver tip names the pane for your macOS version ("AirDrop &
-  Continuity" or "AirDrop & Handoff") and adds Open AirPlay Settings. System
+  Continuity" on macOS 26, "AirDrop & Handoff" before) and adds Open AirPlay Settings. System
   owners that launchd restarts (ControlCenter, rapportd, …) are not offered
   Kill.

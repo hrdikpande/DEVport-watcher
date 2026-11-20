@@ -543,9 +543,10 @@ public enum KnownPorts {
 
     public static var currentOSMajor: Int { ProcessInfo.processInfo.operatingSystemVersion.majorVersion }
 
-    /// The General pane holding AirPlay Receiver was renamed from "AirDrop & Handoff".
+    /// The General pane holding AirPlay Receiver: "AirDrop & Handoff" through macOS 15 (Apple's macOS 13 guide);
+    /// renamed "AirDrop & Continuity" in macOS 26 Tahoe (the only version confirmed renamed).
     public static func airPlayPane(osMajor: Int = currentOSMajor) -> String {
-        osMajor >= 15 ? "AirDrop & Continuity" : "AirDrop & Handoff"
+        osMajor >= 26 ? "AirDrop & Continuity" : "AirDrop & Handoff"
     }
 
     public static let airPlaySettingsURL = URL(string: "x-apple.systempreferences:com.apple.AirDrop-Handoff-Settings.extension")!
@@ -637,18 +638,33 @@ public enum KillError: Error, Equatable, Sendable, CustomStringConvertible {
 
 /// How carefully a process is stopped.
 public enum StopPolicy: Equatable, Sendable {
-    case devServer      // 2 s grace, then SIGKILL
+    case devServer      // Frontend/Backend: 2 s grace, then SIGKILL
+    case app            // System & Apps, container engine, unknown: 5 s grace, never an automatic SIGKILL
     case dataStore      // databases & brokers: 15 s grace, never an automatic SIGKILL
 
-    public init(_ l: Listener) { self = l.kind == .database ? .dataStore : .devServer }
+    public init(_ l: Listener) {
+        switch l.kind {
+        case .frontend, .backend: self = .devServer
+        case .database: self = .dataStore
+        case .system, .docker: self = .app     // containers stop via `docker stop`, never this ladder
+        }
+    }
 
-    public var grace: TimeInterval { self == .dataStore ? 15 : 2 }
+    public var grace: TimeInterval { switch self { case .devServer: 2; case .app: 5; case .dataStore: 15 } }
+    /// Only dev servers you started are force-killed automatically; everything else needs explicit Force Quit.
     public var autoForce: Bool { self == .devServer }
+    /// Most careful first, for a PID that owns several listeners.
+    var caution: Int { switch self { case .devServer: 0; case .app: 1; case .dataStore: 2 } }
     public var warning: String? {
         self == .dataStore
             ? "Databases and brokers can lose or corrupt data that isn't flushed to disk. Ports asks it to shut down "
               + "cleanly and waits up to 15 s; it never force-kills automatically."
             : nil
+    }
+
+    /// The policy for a PID: the most careful of its listeners; an unknown process is treated as an app.
+    public static func strictest(_ ls: [Listener]) -> StopPolicy {
+        ls.map(StopPolicy.init).max { $0.caution < $1.caution } ?? .app
     }
 }
 

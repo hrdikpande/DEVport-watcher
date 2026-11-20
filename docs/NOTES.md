@@ -44,8 +44,9 @@ New Phase 1 tests live in `Tests/PortsCoreTests/Phase1Tests.swift`.
   Phase 1 follow-up, so it has not been committed. `Scripts/dev_harness.sh` was
   built from the Phase 1 item list alone. Check it against the full item 11
   text.
-- The AirPlay pane is assumed renamed to "AirDrop & Continuity" from macOS 15.
-  It is verified on macOS 26 only; confirm the cut-over version on 14 and 15.
+- The AirPlay pane is named "AirDrop & Continuity" from macOS 26 (confirmed on
+  Tahoe) and "AirDrop & Handoff" before (Apple's macOS 13 guide). macOS 14 and
+  15 are assumed to use the old name and have not been checked on a real Mac.
 - `KnownPorts.restartedByLaunchd` is a hand-kept list. Reading the process's
   launchd job (KeepAlive) would be exact; that belongs to the supervisor-aware
   phase.

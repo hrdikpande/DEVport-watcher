@@ -361,7 +361,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard beginStop(key) else { return }
         let mine = listeners.filter { $0.pid == pid && $0.start == id.start }
         if let auto = mine.first(where: KnownPorts.restartsAutomatically) { endStop(key); return explainRestart(auto) }
-        let policy = mine.contains { StopPolicy($0) == .dataStore } ? StopPolicy.dataStore : .devServer
+        let policy = StopPolicy.strictest(mine)
         var detail = tilde(cmd.isEmpty ? Proc.exePath(pid) : cmd)
         if let warning = policy.warning { detail += "\n\n⚠️ " + warning }
         guard confirm("Kill PID \(pid)?", detail, button: "Kill", key: key) else { return endStop(key) }

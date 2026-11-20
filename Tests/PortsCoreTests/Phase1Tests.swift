@@ -311,6 +311,47 @@ struct SafetyTierTests {
         #expect(dev == .devServer && dev.grace == 2 && dev.autoForce && dev.warning == nil)
     }
 
+    @Test("Only Frontend/Backend auto-escalate; apps and engines wait 5 s with no automatic SIGKILL")
+    func appTier() {
+        let vscode = StopPolicy(fixture("/Applications/Visual Studio Code.app/Contents/MacOS/Electron", "Electron", kind: .system))
+        let engine = StopPolicy(fixture("/Applications/Docker.app/Contents/Resources/bin/com.docker.backend", "com.docker.backend", kind: .docker))
+        let vite = StopPolicy(fixture("/usr/local/bin/vite", "vite", kind: .frontend))
+        #expect(vscode == .app && vscode.grace == 5 && !vscode.autoForce)
+        #expect(engine == .app && !engine.autoForce)
+        #expect(vite == .devServer && vite.autoForce)
+        let db = fixture("/opt/homebrew/bin/postgres", "postgres", kind: .database)
+        let node = fixture("/usr/local/bin/node", "node server.js", kind: .backend)
+        #expect(StopPolicy.strictest([node, db]) == .dataStore)
+        #expect(StopPolicy.strictest([]) == .app)
+    }
+
+    /// A child that ignores SIGTERM, classified as `kind`, stopped with that kind's policy.
+    func stopIgnoringChild(as kind: Kind) throws -> (survived: Bool, status: Int32?) {
+        let child = try spawn("/bin/sh", ["-c", "trap '' TERM; exec /bin/sleep 30"])
+        defer { if child.isRunning { kill(child.processIdentifier, SIGKILL); child.waitUntilExit() } }
+        let pid = child.processIdentifier
+        usleep(200_000)
+        let id = try #require(Proc.identity(pid))
+        let policy = StopPolicy(fixture("/bin/sleep", "sleep 30", kind: kind))
+        #expect(safeTerminate(pid: pid, start: id.start, policy: policy) == nil)
+        let survived = Proc.identity(pid)?.start == id.start
+        if !survived { child.waitUntilExit(); return (false, child.terminationStatus) }
+        return (true, nil)
+    }
+
+    @Test("App-kind process ignoring SIGTERM is left running after 5 s (Force stays explicit)")
+    func appProcessNotForceKilled() throws {
+        let r = try stopIgnoringChild(as: .system)
+        #expect(r.survived)
+    }
+
+    @Test("Backend-kind process ignoring SIGTERM is SIGKILLed after 2 s")
+    func backendProcessForceKilled() throws {
+        let r = try stopIgnoringChild(as: .backend)
+        #expect(!r.survived)
+        #expect(r.status == SIGKILL)
+    }
+
     @Test("Without escalation a process ignoring SIGTERM survives; Force is a separate step")
     func noAutoForce() throws {
         let child = try spawn("/bin/sh", ["-c", "trap '' TERM; exec /bin/sleep 30"])
@@ -538,11 +579,11 @@ struct SystemOwnerTests {
     func paneName() throws {
         let l = fixture(controlCenter, "ControlCenter", port: 5000, uid: 501, kind: .system)
         #expect(KnownPorts.airPlayPane(osMajor: 26) == "AirDrop & Continuity")
-        #expect(KnownPorts.airPlayPane(osMajor: 15) == "AirDrop & Continuity")
-        #expect(KnownPorts.airPlayPane(osMajor: 14) == "AirDrop & Handoff")
+        #expect(KnownPorts.airPlayPane(osMajor: 27) == "AirDrop & Continuity")
+        #expect(KnownPorts.airPlayPane(osMajor: 15) == "AirDrop & Handoff")
         #expect(KnownPorts.airPlayPane(osMajor: 13) == "AirDrop & Handoff")
         #expect(try #require(KnownPorts.explanation(l, osMajor: 26)).contains("General › AirDrop & Continuity › AirPlay Receiver"))
-        #expect(try #require(KnownPorts.explanation(l, osMajor: 14)).contains("General › AirDrop & Handoff › AirPlay Receiver"))
+        #expect(try #require(KnownPorts.explanation(l, osMajor: 15)).contains("General › AirDrop & Handoff › AirPlay Receiver"))
         #expect(try #require(KnownPorts.explanation(l)).contains(KnownPorts.airPlayPane()))
     }
 
