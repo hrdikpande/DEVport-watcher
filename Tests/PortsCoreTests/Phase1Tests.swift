@@ -527,3 +527,39 @@ struct StopRegistryTests {
         #expect(registry.claim(key))
     }
 }
+
+// MARK: - AirPlay settings and launchd-restarted owners
+
+@Suite("Phase 1 · System owners")
+struct SystemOwnerTests {
+    let controlCenter = "/System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter"
+
+    @Test("AirPlay pane is named for the running macOS version")
+    func paneName() throws {
+        let l = fixture(controlCenter, "ControlCenter", port: 5000, uid: 501, kind: .system)
+        #expect(KnownPorts.airPlayPane(osMajor: 26) == "AirDrop & Continuity")
+        #expect(KnownPorts.airPlayPane(osMajor: 15) == "AirDrop & Continuity")
+        #expect(KnownPorts.airPlayPane(osMajor: 14) == "AirDrop & Handoff")
+        #expect(KnownPorts.airPlayPane(osMajor: 13) == "AirDrop & Handoff")
+        #expect(try #require(KnownPorts.explanation(l, osMajor: 26)).contains("General › AirDrop & Continuity › AirPlay Receiver"))
+        #expect(try #require(KnownPorts.explanation(l, osMajor: 14)).contains("General › AirDrop & Handoff › AirPlay Receiver"))
+        #expect(try #require(KnownPorts.explanation(l)).contains(KnownPorts.airPlayPane()))
+    }
+
+    @Test("ControlCenter on 5000/7000 gets an Open AirPlay Settings action for that pane", arguments: [5000, 7000])
+    func settingsAction(_ port: Int) throws {
+        let l = fixture(controlCenter, "ControlCenter", port: port, uid: 501, kind: .system)
+        let link = try #require(KnownPorts.settingsAction(l))
+        #expect(link.title == "Open AirPlay Settings")
+        #expect(link.url.absoluteString == "x-apple.systempreferences:com.apple.AirDrop-Handoff-Settings.extension")
+        #expect(KnownPorts.settingsAction(fixture(controlCenter, "ControlCenter", port: 8080, uid: 501, kind: .system)) == nil)
+    }
+
+    @Test("launchd-restarted system owners are not offered a plain Kill")
+    func restarts() {
+        #expect(KnownPorts.restartsAutomatically(fixture(controlCenter, "ControlCenter", port: 5000, uid: 501, kind: .system)))
+        #expect(KnownPorts.restartsAutomatically(fixture("/usr/libexec/rapportd", "rapportd", port: 3000, uid: 501, kind: .system)))
+        #expect(!KnownPorts.restartsAutomatically(fixture("/usr/local/bin/node", "node server.js", kind: .backend)))
+        #expect(!KnownPorts.restartsAutomatically(fixture("/Applications/Electron.app/Contents/MacOS/Electron", "Electron", kind: .system)))
+    }
+}

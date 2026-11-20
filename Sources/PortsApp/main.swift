@@ -206,6 +206,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let cmd = tilde(l.command)
         sub.addItem(infoItem(cmd.count > 90 ? String(cmd.prefix(89)) + "…" : cmd, symbol: "terminal"))
         sub.addItem(.separator())
+        if let link = KnownPorts.settingsAction(l) {           // the fix that frees the port: listed first
+            sub.addItem(ActionItem(link.title, symbol: "gearshape", key: "") { NSWorkspace.shared.open(link.url) })
+        }
         if let scheme = l.web, let url = browserURL(l, scheme) {
             sub.addItem(ActionItem("Open in Browser", symbol: "safari", key: "") { NSWorkspace.shared.open(url) })
         }
@@ -221,6 +224,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sub.addItem(.separator())
         if let c = l.container {
             sub.addItem(ActionItem("Stop Container “\(c)”", symbol: "stop.circle", key: "") { [weak self] in self?.stopContainer(c, port: l.port) })
+        } else if KnownPorts.restartsAutomatically(l) {
+            sub.addItem(infoItem("macOS restarts this immediately — stopping it won't free the port", symbol: "arrow.clockwise"))
         } else if l.uid != getuid() {
             sub.addItem(infoItem("Owned by the system — can't stop", symbol: "lock.shield"))
         } else {
@@ -317,7 +322,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func stop(_ l: Listener) {
-        if let c = l.container { stopContainer(c, port: l.port) } else { confirmKill(l) }
+        if let c = l.container { stopContainer(c, port: l.port) }
+        else if KnownPorts.restartsAutomatically(l) { explainRestart(l) }
+        else { confirmKill(l) }
+    }
+
+    /// Kill would be pointless (launchd restarts it at once); offer the setting that frees the port.
+    func explainRestart(_ l: Listener) {
+        let a = NSAlert()
+        a.messageText = "macOS will restart \(appName(l.exe)) immediately"
+        a.informativeText = (KnownPorts.explanation(l).map { $0 + "\n\n" } ?? "")
+            + "Stopping it won't free port \(l.port), so Ports doesn't offer that."
+        let link = KnownPorts.settingsAction(l)
+        if let link { a.addButton(withTitle: link.title) }
+        a.addButton(withTitle: link == nil ? "OK" : "Cancel").keyEquivalent = link == nil ? "\r" : "\u{1b}"
+        if present(a, key: nil) == .alertFirstButtonReturn, let link { NSWorkspace.shared.open(link.url) }
     }
 
     /// Always rescans first (the menu cache may be stale); several owners -> the user picks one.
@@ -341,6 +360,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let key = StopRegistry.key(pid: pid, start: id.start)
         guard beginStop(key) else { return }
         let mine = listeners.filter { $0.pid == pid && $0.start == id.start }
+        if let auto = mine.first(where: KnownPorts.restartsAutomatically) { endStop(key); return explainRestart(auto) }
         let policy = mine.contains { StopPolicy($0) == .dataStore } ? StopPolicy.dataStore : .devServer
         var detail = tilde(cmd.isEmpty ? Proc.exePath(pid) : cmd)
         if let warning = policy.warning { detail += "\n\n⚠️ " + warning }

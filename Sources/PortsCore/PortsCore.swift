@@ -407,7 +407,7 @@ func matches(_ toks: [String], _ tools: [String]) -> String? {
 }
 
 /// "Visual Studio Code", "VS Code ext: oracle.sql-developer", "rapportd"…
-func appName(_ exe: String) -> String {
+public func appName(_ exe: String) -> String {
     if let r = exe.range(of: "/.vscode/extensions/") {
         let ext = exe[r.upperBound...].split(separator: "/").first.map(String.init) ?? ""
         return "VS Code ext: " + ext.replacingOccurrences(of: #"-\d.*$"#, with: "", options: .regularExpression)
@@ -533,13 +533,39 @@ public enum KnownPorts {
                                                   6006, 6379, 7000, 8000, 8001, 8080, 8081, 8443, 8888, 9000,
                                                   9229, 27017]
 
+    /// System processes launchd starts again at once: killing them never frees the port.
+    public static let restartedByLaunchd: Set<String> = ["ControlCenter", "rapportd", "sharingd", "remoted",
+                                                         "AirPlayXPCHelper", "mDNSResponder", "identityservicesd"]
+
+    public static func restartsAutomatically(_ l: Listener) -> Bool {
+        l.kind == .system && restartedByLaunchd.contains(appName(l.exe))
+    }
+
+    public static var currentOSMajor: Int { ProcessInfo.processInfo.operatingSystemVersion.majorVersion }
+
+    /// The General pane holding AirPlay Receiver was renamed from "AirDrop & Handoff".
+    public static func airPlayPane(osMajor: Int = currentOSMajor) -> String {
+        osMajor >= 15 ? "AirDrop & Continuity" : "AirDrop & Handoff"
+    }
+
+    public static let airPlaySettingsURL = URL(string: "x-apple.systempreferences:com.apple.AirDrop-Handoff-Settings.extension")!
+
+    static func isAirPlayReceiver(_ l: Listener) -> Bool {
+        l.kind == .system && appName(l.exe) == "ControlCenter" && (l.port == 5000 || l.port == 7000)
+    }
+
+    /// The settings action that actually frees the port, if there is one.
+    public static func settingsAction(_ l: Listener) -> (title: String, url: URL)? {
+        isAirPlayReceiver(l) ? ("Open AirPlay Settings", airPlaySettingsURL) : nil
+    }
+
     /// Why a system process holds a common dev port, and how to free it.
-    public static func explanation(_ l: Listener) -> String? {
+    public static func explanation(_ l: Listener, osMajor: Int = currentOSMajor) -> String? {
         guard l.kind == .system, commonDevPorts.contains(l.port) else { return nil }
         let app = appName(l.exe)
-        if app == "ControlCenter" && (l.port == 5000 || l.port == 7000) {
+        if isAirPlayReceiver(l) {
             return "AirPlay Receiver (ControlCenter) uses port \(l.port). To free it, turn off System Settings › "
-                + "General › AirDrop & Handoff › AirPlay Receiver."
+                + "General › \(airPlayPane(osMajor: osMajor)) › AirPlay Receiver."
         }
         return "\(app) is using port \(l.port), a common dev-server port, so a dev server can't bind it."
     }
