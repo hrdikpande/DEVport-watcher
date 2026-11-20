@@ -4,7 +4,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP="build/Ports.app"
-BIN_PATH="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
+ARCHS=(--arch arm64 --arch x86_64)
+
+swift build -c release "${ARCHS[@]}"
+BIN_PATH="$(swift build -c release "${ARCHS[@]}" --show-bin-path)"
 
 if [[ ! -f assets/AppIcon.icns ]]; then
   mkdir -p build/icon/AppIcon.iconset
@@ -24,6 +27,17 @@ cp "$BIN_PATH/ports" "$APP/Contents/MacOS/ports"
 cp Info.plist "$APP/Contents/Info.plist"
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 codesign --force --options runtime --sign - "$APP"
+codesign --verify --strict "$APP"
+
+for bin in "$APP/Contents/MacOS/Ports" "$APP/Contents/MacOS/ports"; do
+  archs="$(lipo -archs "$bin")"
+  [[ "$archs" == *arm64* && "$archs" == *x86_64* ]] || { echo "Not universal: $bin ($archs)"; exit 1; }
+done
+echo "Built universal $APP"
+
+if [[ -n "${CI:-}" || "${1:-}" == "--no-install" ]]; then
+  exit 0
+fi
 
 mkdir -p "$HOME/Applications"
 if pgrep -x Ports >/dev/null 2>&1; then
