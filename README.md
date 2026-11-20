@@ -1,5 +1,7 @@
 # Ports
 
+Ports tells developers what is running locally, why it is running, whether it is safe, and how to stop it — without leaving the menu bar.
+
 Ports is a lightweight native macOS menu-bar app for discovering and managing
 listening TCP ports.
 
@@ -157,23 +159,37 @@ Keyboard shortcuts are available in the menu:
 Ports is local-only. It does not send port or process information to a remote
 service.
 
-The application reads process and socket information from macOS system APIs.
-The only external command it launches is the Docker CLI, when Docker integration
-is available. Docker commands use fixed executable paths, validated arguments,
-minimal environment variables, and timeouts.
+The application reads process and socket information from macOS system APIs. In
+the current release, Docker integration invokes the Docker CLI only when Docker
+is available; there are no HTTP or database protocol probes and no Docker socket
+probe.
+
+Planned probes are documented here before implementation:
+
+| Probe | When | Where | Timeout | Access |
+| --- | --- | --- | --- | --- |
+| HTTP | Panel open only | Loopback only | 800 ms | Read-only |
+| Database protocol | Panel open only | Loopback only | 300 ms | Read-only |
+| Docker socket | Panel open only | Local Unix socket | 2 s | Read-only except explicit stop actions |
+
+Docker CLI commands use fixed executable paths, validated arguments, minimal
+environment variables, and timeouts.
 
 ## Project structure
 
 ```text
-main.swift       Application source
-Info.plist       macOS bundle metadata
-build.sh         Build, sign, and install script
-assets/          Application icon
-tools/           Icon generation utility
-archive/         Previous implementation
-build/           Generated application bundle
+Package.swift           Swift Package Manager manifest
+Sources/PortsCore/      Shared scanner, classifier, Docker, and safety logic
+Sources/PortsApp/       AppKit menu-bar application
+Sources/ports/           CLI listing command
+Tests/PortsCoreTests/   Characterization tests and real-output fixtures
+Info.plist              macOS bundle metadata
+build.sh                Build, sign, and install wrapper
+Scripts/build_app.sh    Application bundle build script
+assets/                 Application icon
+tools/                  Icon generation utility
 ```
 
 ## License
 
-No license file is currently included in this repository.
+Ports is released under the MIT License. See [LICENSE](LICENSE).
