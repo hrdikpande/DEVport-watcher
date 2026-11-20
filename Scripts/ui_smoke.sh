@@ -20,6 +20,8 @@ cleanup() {
   set +e
   [[ -n "$APP_PID" ]] && { kill -TERM "$APP_PID" 2>/dev/null; wait "$APP_PID" 2>/dev/null; }
   [[ -n "$HARNESS_PID" ]] && { kill -TERM "$HARNESS_PID" 2>/dev/null; wait "$HARNESS_PID" 2>/dev/null; }
+  # Forked harness workers leave within a moment of their parent; wait until the ports are free.
+  for _ in {1..100}; do lsof -nP -iTCP:$BASE-$((BASE+20)) -sTCP:LISTEN >/dev/null 2>&1 || break; sleep 0.1; done
   rm -f "$LOG"
 }
 trap cleanup EXIT
@@ -93,9 +95,10 @@ expect $((BASE+0)) "python"
 expect $((BASE+1)) "LAN"
 expect $((BASE+4)) "python"
 expect $((BASE+5)) "STOPPED"
-expect $((BASE+6)) "redis-server"
+expect $((BASE+6)) "Redis"
 expect $((BASE+9)) "harness-web" "feature/demo"
 expect $((BASE+10)) "×3"
+expect $((BASE+13)) "Vite"
 
 if (( errors > 0 )); then
   echo "Menu as read:"; print -r -- "$items"
