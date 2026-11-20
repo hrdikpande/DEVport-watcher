@@ -329,3 +329,29 @@ struct OwnerReportTests {
         #expect(portReport(s.port, owners: found).hasPrefix("Still listening: "))
     }
 }
+
+// MARK: - 9. System processes on dev ports
+
+@Suite("Phase 1 · Known ports")
+struct KnownPortsTests {
+    let controlCenter = "/System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter"
+
+    @Test("ControlCenter on 5000/7000 is shown in Developer view as AirPlay Receiver", arguments: [5000, 7000])
+    func airPlay(_ port: Int) throws {
+        let l = fixture(controlCenter, "ControlCenter", port: port, uid: 501, kind: .system)
+        let why = try #require(KnownPorts.explanation(l))
+        #expect(why.contains("AirPlay Receiver"))
+        #expect(why.contains("turn off"))
+        #expect(showsInDeveloperView(l))
+    }
+
+    @Test("Any system process on a common dev port is shown; elsewhere it stays in System & Apps")
+    func otherSystem() {
+        let onDevPort = fixture("/usr/libexec/rapportd", "rapportd", port: 3000, uid: 0, kind: .system)
+        let elsewhere = fixture("/usr/libexec/rapportd", "rapportd", port: 53943, uid: 0, kind: .system)
+        #expect(showsInDeveloperView(onDevPort))
+        #expect(KnownPorts.explanation(onDevPort)?.contains("3000") == true)
+        #expect(!showsInDeveloperView(elsewhere))
+        #expect(KnownPorts.explanation(elsewhere) == nil)
+    }
+}

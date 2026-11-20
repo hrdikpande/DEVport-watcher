@@ -24,6 +24,16 @@ func infoItem(_ text: String, symbol: String? = nil) -> NSMenuItem {
     return i
 }
 
+/// Menu items don't wrap; split long text into lines of at most `width` characters.
+func wrap(_ text: String, _ width: Int) -> [String] {
+    var lines: [String] = [], line = ""
+    for word in text.split(separator: " ") {
+        if !line.isEmpty && line.count + word.count + 1 > width { lines.append(line); line = "" }
+        line += (line.isEmpty ? "" : " ") + word
+    }
+    return line.isEmpty ? lines : lines + [line]
+}
+
 // MARK: - App
 
 @MainActor
@@ -101,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func build() {
         menu.removeAllItems()
         let shown = listeners.filter {
-            switch filter { case .developer: $0.kind.isDeveloper; case .system: !$0.kind.isDeveloper; case .all: true }
+            switch filter { case .developer: showsInDeveloperView($0); case .system: !$0.kind.isDeveloper; case .all: true }
         }
 
         let show = NSMenuItem(title: "Show: " + ["Developer", "System & Apps", "All"][filter.rawValue], action: nil, keyEquivalent: "")
@@ -159,6 +169,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sub.addItem(infoItem("PID \(l.pid)", symbol: "number"))
         sub.addItem(infoItem(l.exposed ? "Reachable from your network (\(l.exposure.address))" : "Local only (\(l.exposure.address))",
                              symbol: l.exposed ? "wifi.exclamationmark" : "lock"))
+        if let why = KnownPorts.explanation(l) {
+            for line in wrap(why, 60) { sub.addItem(infoItem(line, symbol: line == wrap(why, 60).first ? "info.circle" : nil)) }
+        }
         if l.stopped {
             sub.addItem(infoItem("Stopped (suspended) — holds the port but answers nothing", symbol: "pause.circle"))
         }

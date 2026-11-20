@@ -421,6 +421,31 @@ public func classify(_ l: Listener) -> (Kind, String) {
     return (.system, appName(l.exe))
 }
 
+// MARK: - System processes on dev ports
+
+public enum KnownPorts {
+    /// Ports dev servers usually want. A system process here is the likely cause of "address in use".
+    public static let commonDevPorts: Set<Int> = [3000, 3001, 3306, 4000, 4200, 4321, 5000, 5001, 5173, 5432,
+                                                  6006, 6379, 7000, 8000, 8001, 8080, 8081, 8443, 8888, 9000,
+                                                  9229, 27017]
+
+    /// Why a system process holds a common dev port, and how to free it.
+    public static func explanation(_ l: Listener) -> String? {
+        guard l.kind == .system, commonDevPorts.contains(l.port) else { return nil }
+        let app = appName(l.exe)
+        if app == "ControlCenter" && (l.port == 5000 || l.port == 7000) {
+            return "AirPlay Receiver (ControlCenter) uses port \(l.port). To free it, turn off System Settings › "
+                + "General › AirDrop & Handoff › AirPlay Receiver."
+        }
+        return "\(app) is using port \(l.port), a common dev-server port, so a dev server can't bind it."
+    }
+}
+
+/// Developer view: dev kinds, plus any system process sitting on a common dev port (never hidden).
+public func showsInDeveloperView(_ l: Listener) -> Bool {
+    l.kind.isDeveloper || KnownPorts.explanation(l) != nil
+}
+
 // MARK: - Scan (runs off the main thread)
 
 public func scan(docker: [Int: String]) -> [Listener] {
