@@ -11,10 +11,24 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BASE=${PORT_BASE:-47100}
+LAST=$((BASE+8))
+
+# Refuse to start if any harness port is taken (an old harness run, or something of yours).
+if busy=$(lsof -nP -iTCP:$BASE-$LAST -sTCP:LISTEN 2>/dev/null | tail -n +2) && [[ -n "$busy" ]]; then
+  echo "dev_harness: ports $BASE–$LAST must be free, but these are listening:" >&2
+  echo "$busy" >&2
+  echo "Stop them (or use PORT_BASE=<other> $0) and try again." >&2
+  exit 1
+fi
+
 WORK=$(mktemp -d -t ports-harness)
 typeset -a PIDS
+# Only our own children: SIGCONT (a suspended one can't die cleanly otherwise), then SIGKILL, so even
+# the TERM-ignoring fake data store never survives. "No such process" is expected and ignored.
 cleanup() {
-  for p in $PIDS; do kill -CONT $p 2>/dev/null || true; kill -KILL $p 2>/dev/null || true; done
+  set +e
+  for p in $PIDS; do kill -CONT $p 2>/dev/null; kill -KILL $p 2>/dev/null; done
+  for p in $PIDS; do wait $p 2>/dev/null; done
   rm -rf "$WORK"
 }
 trap cleanup EXIT
