@@ -4,8 +4,7 @@ import PortsCore
 let arguments = Array(CommandLine.arguments.dropFirst())
 
 if arguments.isEmpty || arguments == ["list"] || arguments == ["--list"] {
-    let map = dockerPath == nil ? [:] : dockerPorts()
-    for listener in scan(docker: map) {
+    for listener in scanWithContainers() {
         print(
             ":\(listener.port)".padding(toLength: 7, withPad: " ", startingAt: 0),
             "\(listener.pid)".padding(toLength: 7, withPad: " ", startingAt: 0),

@@ -63,13 +63,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func refresh(withDocker: Bool) {
         guard !scanning else { return }
         scanning = true
-        let wantDocker = withDocker && dockerPath != nil
         let cachedDocker = docker
         scanQueue.async {
+            // Menu open: query containers in this same scan. Background poll: reuse the last map —
+            // scan() only applies it to container-runtime proxies, so a native process never inherits it.
             var map = cachedDocker
             var result = scan(docker: map)
-            if wantDocker && result.contains(where: { $0.kind == .docker }) {
-                map = dockerPorts()
+            if withDocker {
+                map = needsContainerQuery(result) ? dockerPorts() : [:]
                 result = scan(docker: map)
             }
             RunLoop.main.perform(inModes: [.common]) {
@@ -276,15 +277,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 // `Ports --list` prints the table in Terminal (handy for checking classification).
 if CommandLine.arguments.contains("--list") {
     let t0 = Date()
-    let map = dockerPath != nil ? dockerPorts() : [:]
-    for l in scan(docker: map) {
+    for l in scanWithContainers() {
         print(":\(l.port)".padding(toLength: 7, withPad: " ", startingAt: 0),
               "\(l.pid)".padding(toLength: 7, withPad: " ", startingAt: 0),
               l.kind.title.padding(toLength: 14, withPad: " ", startingAt: 0),
               (l.exposed ? "LAN " : "    ") + l.label)
     }
     let t1 = Date()
-    _ = scan(docker: map)
+    _ = scan(docker: [:])
     print(String(format: "\nscan (no docker): %.0f ms · with docker: %.0f ms", Date().timeIntervalSince(t1) * 1000, t1.timeIntervalSince(t0) * 1000))
     exit(0)
 }

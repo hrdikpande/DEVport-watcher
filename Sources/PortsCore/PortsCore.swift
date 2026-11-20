@@ -207,9 +207,36 @@ public enum Proc {
 
 // MARK: - Docker (the only external command; fixed path, minimal env, timeout)
 
-public let dockerPath = ["/usr/local/bin/docker", "/opt/homebrew/bin/docker",
-                  "/Applications/Docker.app/Contents/Resources/bin/docker"]
-    .first { FileManager.default.isExecutableFile(atPath: $0) }
+/// Docker-compatible CLIs, first one found wins (Docker Desktop, Homebrew, OrbStack, Rancher Desktop, Podman).
+public let containerCLIPaths = ["/usr/local/bin/docker", "/opt/homebrew/bin/docker",
+                                "/Applications/Docker.app/Contents/Resources/bin/docker",
+                                home + "/.orbstack/bin/docker", home + "/.rd/bin/docker",
+                                "/opt/homebrew/bin/podman"]
+public let dockerPath = containerCLIPaths.first { FileManager.default.isExecutableFile(atPath: $0) }
+
+/// The container runtime whose host-side proxy this executable is, if any. Only these processes
+/// publish container ports, so only they may carry a container label.
+public func containerRuntime(exe: String) -> String? {
+    let name = basename(exe).lowercased()
+    if exe.contains("/Docker.app/") || name.hasPrefix("com.docker") || ["vpnkit-bridge", "docker-proxy"].contains(name) {
+        return "Docker"
+    }
+    if exe.contains("/OrbStack.app/") || name.hasPrefix("orbstack") { return "OrbStack" }
+    if exe.contains("/Rancher Desktop.app/") || exe.contains("/.rd/") { return "Rancher Desktop" }
+    if name == "limactl" || exe.contains("/colima/") || exe.contains("/.lima/") { return "Colima/Lima" }
+    if name == "gvproxy" || name.hasPrefix("podman") { return "Podman" }
+    return nil
+}
+
+/// Container name for a listener: only a container-runtime proxy can own a published port.
+public func containerName(exe: String, port: Int, docker: [Int: String]) -> String? {
+    containerRuntime(exe: exe) == nil ? nil : docker[port]
+}
+
+/// Query the container CLI only when a runtime's proxy is actually listening.
+public func needsContainerQuery(_ listeners: [Listener]) -> Bool {
+    dockerPath != nil && listeners.contains { containerRuntime(exe: $0.exe) != nil }
+}
 
 public func run(_ path: String, _ args: [String], timeout: TimeInterval = 3) -> (out: String, ok: Bool) {
     let p = Process()
@@ -240,10 +267,13 @@ public func isSafeContainerName(_ s: String) -> Bool {
 public func dockerPorts() -> [Int: String] {
     guard let docker = dockerPath else { return [:] }
     let res = run(docker, ["ps", "--format", "{{.Names}}\t{{.Ports}}"])
-    guard res.ok else { return [:] }
+    return res.ok ? parseDockerPorts(res.out) : [:]
+}
+
+func parseDockerPorts(_ out: String) -> [Int: String] {
     var map: [Int: String] = [:]
     let regex = try! NSRegularExpression(pattern: #":(\d+)(?:-(\d+))?->"#)
-    for line in res.out.split(separator: "\n") {
+    for line in out.split(separator: "\n") {
         let parts = line.split(separator: "\t", maxSplits: 1).map(String.init)
         guard parts.count == 2, isSafeContainerName(parts[0]) else { continue }
         let ports = parts[1] as NSString
@@ -362,9 +392,9 @@ public func classify(_ l: Listener) -> (Kind, String) {
     let argv0 = names.count > 1 ? names[1] : exeName
 
     if let c = l.container { return (.docker, c) }
-    if l.exe.contains("/Docker.app/") || exeName.hasPrefix("com.docker") {
+    if let runtime = containerRuntime(exe: l.exe) {
         let guess = wellKnownPorts[l.port].map { "\($0)? · " } ?? ""
-        return (.docker, "\(guess)Docker engine")
+        return (.docker, "\(guess)\(runtime) engine")
     }
     // A script run by node/python is not a database just because of its file name; a java main class can be.
     let dbCandidates = isInterpreter(exeName) && exeName != "java" ? Array(names.prefix(2)) : names
@@ -396,7 +426,8 @@ public func scan(docker: [Int: String]) -> [Listener] {
         for (port, exposure) in byPort {
             var l = Listener(port: port, pid: pid, start: id.start, uid: id.uid, exposed: exposure.isNetworkReachable,
                              exposure: exposure, exe: exe, command: cmd.isEmpty ? exe : cmd,
-                             argv: args.isEmpty ? [exe] : args, cwd: cwd, container: docker[port])
+                             argv: args.isEmpty ? [exe] : args, cwd: cwd,
+                             container: containerName(exe: exe, port: port, docker: docker))
             let (kind, tool) = classify(l)
             l.kind = kind
             let folder = (cwd.hasPrefix(home + "/")) ? basename(cwd) : ""
@@ -405,6 +436,12 @@ public func scan(docker: [Int: String]) -> [Listener] {
         }
     }
     return out.sorted { ($0.kind.rawValue, $0.port, $0.pid) < ($1.kind.rawValue, $1.port, $1.pid) }
+}
+
+/// One fresh scan with container labels queried in the same pass (never a stale port map).
+public func scanWithContainers() -> [Listener] {
+    let first = scan(docker: [:])
+    return needsContainerQuery(first) ? scan(docker: dockerPorts()) : first
 }
 
 // MARK: - Safe kill

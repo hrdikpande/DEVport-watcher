@@ -184,3 +184,62 @@ struct ClassifierTests {
         #expect(firstOperand(["-e", "code"]) == nil)
     }
 }
+
+// MARK: - 3 & 4. Container runtimes and labels
+
+@Suite("Phase 1 · Containers")
+struct ContainerTests {
+    @Test("Container runtime proxies are recognised", arguments: [
+        ("/Applications/Docker.app/Contents/Resources/bin/com.docker.backend", "Docker"),
+        ("/Applications/OrbStack.app/Contents/Frameworks/OrbStack Helper.app/Contents/MacOS/OrbStack Helper", "OrbStack"),
+        ("/opt/homebrew/Cellar/lima/1.0.0/bin/limactl", "Colima/Lima"),
+        ("/Applications/Rancher Desktop.app/Contents/Resources/resources/darwin/lima/bin/limactl", "Rancher Desktop"),
+        ("/opt/homebrew/Cellar/podman/5.0.0/libexec/podman/gvproxy", "Podman"),
+    ])
+    func runtimes(_ exe: String, _ name: String) {
+        #expect(containerRuntime(exe: exe) == name)
+        #expect(classify(fixture(exe, basename(exe))).0 == .docker)
+    }
+
+    @Test("Native processes are not container runtimes")
+    func native() {
+        #expect(containerRuntime(exe: "/usr/bin/python3") == nil)
+        #expect(containerRuntime(exe: "/opt/homebrew/bin/postgres") == nil)
+    }
+
+    @Test("CLI lookup includes OrbStack, Rancher Desktop and Podman")
+    func cliPaths() {
+        #expect(containerCLIPaths.contains(home + "/.orbstack/bin/docker"))
+        #expect(containerCLIPaths.contains(home + "/.rd/bin/docker"))
+        #expect(containerCLIPaths.contains("/opt/homebrew/bin/podman"))
+    }
+
+    @Test("Container query is gated on a runtime proxy, not on Docker Desktop's kind")
+    func gate() {
+        let orb = fixture("/Applications/OrbStack.app/Contents/MacOS/OrbStack Helper", "OrbStack Helper")
+        let py = fixture("/usr/bin/python3", "python3 app.py")
+        #expect(!needsContainerQuery([py]))
+        #expect(needsContainerQuery([py, orb]) == (dockerPath != nil))
+    }
+
+    @Test("Only a runtime proxy gets a container label; a native process on a reused port does not")
+    func labels() {
+        let map = [8080: "web"]
+        #expect(containerName(exe: "/Applications/Docker.app/Contents/Resources/bin/com.docker.backend", port: 8080, docker: map) == "web")
+        #expect(containerName(exe: "/usr/bin/python3", port: 8080, docker: map) == nil)
+        #expect(containerName(exe: "/Applications/Docker.app/Contents/Resources/bin/com.docker.backend", port: 9090, docker: map) == nil)
+    }
+
+    @Test("Docker ports parser is shared with the real query")
+    func parser() {
+        #expect(parseDockerPorts("web\t0.0.0.0:8080->80/tcp\n") == [8080: "web"])
+    }
+
+    @Test("Scan with a stale map never labels this (native) test process")
+    func scanIgnoresStaleMap() throws {
+        let s = try TestListener()
+        let mine = scan(docker: [s.port: "stale"]).filter { $0.pid == getpid() && $0.port == s.port }
+        #expect(mine.count == 1)
+        #expect(mine.allSatisfy { $0.container == nil && $0.kind != .docker })
+    }
+}
