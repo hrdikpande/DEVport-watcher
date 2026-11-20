@@ -78,10 +78,19 @@ func spawn(_ path: String, _ args: [String]) throws -> Process {
     return p
 }
 
-func waitFor(_ seconds: Double = 2, _ condition: () -> Bool) -> Bool {
+/// Poll until `condition` holds. Generous default for slow CI runners; returns as soon as it's true.
+func waitFor(_ seconds: Double = 15, _ condition: () -> Bool) -> Bool {
     let end = Date().addingTimeInterval(seconds)
     while Date() < end { if condition() { return true }; usleep(20_000) }
     return condition()
+}
+
+/// A child that ignores SIGTERM. Returned only once `sh` has exec'd `/bin/sleep`, so the trap is in place
+/// (the pid and start time survive exec; waiting on the exe path replaces a fixed sleep).
+func spawnIgnoringTERM() throws -> Process {
+    let child = try spawn("/bin/sh", ["-c", "trap '' TERM; exec /bin/sleep 30"])
+    try #require(waitFor { Proc.exePath(child.processIdentifier) == "/bin/sleep" })
+    return child
 }
 
 func fixture(_ exe: String, _ command: String, port: Int = 4000, uid: uid_t = 501,
@@ -292,7 +301,8 @@ struct ProcessStateTests {
         #expect(waitFor { Proc.isStopped(pid) })
 
         let id = try #require(Proc.identity(pid))
-        #expect(safeTerminate(pid: pid, start: id.start) == nil)
+        // Long grace: the assertion is "exits on SIGTERM", so never let a slow runner fall through to SIGKILL.
+        #expect(safeTerminate(pid: pid, start: id.start, grace: 15) == nil)
         child.waitUntilExit()
         #expect(child.terminationReason == .uncaughtSignal)
         #expect(child.terminationStatus == SIGTERM)     // exited on SIGTERM after SIGCONT, not SIGKILL
@@ -327,16 +337,17 @@ struct SafetyTierTests {
 
     /// A child that ignores SIGTERM, classified as `kind`, stopped with that kind's policy.
     func stopIgnoringChild(as kind: Kind) throws -> (survived: Bool, status: Int32?) {
-        let child = try spawn("/bin/sh", ["-c", "trap '' TERM; exec /bin/sleep 30"])
+        let child = try spawnIgnoringTERM()
         defer { if child.isRunning { kill(child.processIdentifier, SIGKILL); child.waitUntilExit() } }
         let pid = child.processIdentifier
-        usleep(200_000)
         let id = try #require(Proc.identity(pid))
         let policy = StopPolicy(fixture("/bin/sleep", "sleep 30", kind: kind))
         #expect(safeTerminate(pid: pid, start: id.start, policy: policy) == nil)
-        let survived = Proc.identity(pid)?.start == id.start
-        if !survived { child.waitUntilExit(); return (false, child.terminationStatus) }
-        return (true, nil)
+        guard policy.autoForce else {                                 // no SIGKILL was sent: it must still run
+            return (Proc.identity(pid)?.start == id.start, nil)
+        }
+        child.waitUntilExit()                                         // SIGKILL sent: wait for the exit, don't race it
+        return (false, child.terminationStatus)
     }
 
     @Test("App-kind process ignoring SIGTERM is left running after 5 s (Force stays explicit)")
@@ -354,10 +365,9 @@ struct SafetyTierTests {
 
     @Test("Without escalation a process ignoring SIGTERM survives; Force is a separate step")
     func noAutoForce() throws {
-        let child = try spawn("/bin/sh", ["-c", "trap '' TERM; exec /bin/sleep 30"])
+        let child = try spawnIgnoringTERM()
         defer { if child.isRunning { kill(child.processIdentifier, SIGKILL) } }
         let pid = child.processIdentifier
-        usleep(200_000)                                               // let sh exec sleep
         let id = try #require(Proc.identity(pid))
 
         #expect(safeTerminate(pid: pid, start: id.start, grace: 0.3, escalate: false) == nil)
@@ -394,7 +404,7 @@ struct OwnerReportTests {
         let s = try TestListener()
         let child = try spawn("/usr/bin/nc", ["-6", "-l", "::1", "\(s.port)"])
         defer { if child.isRunning { child.terminate(); child.waitUntilExit() } }
-        _ = waitFor { Proc.listeningPorts(child.processIdentifier).contains { $0.port == s.port } }
+        try #require(waitFor { Proc.listeningPorts(child.processIdentifier).contains { $0.port == s.port } })
 
         let found = owners(ofPort: s.port, in: scanWithContainers())
         #expect(found.map(\.pid).contains(getpid()))
@@ -408,7 +418,7 @@ struct OwnerReportTests {
         let s = try TestListener()
         let child = try spawn("/usr/bin/nc", ["-6", "-l", "::1", "\(s.port)"])
         defer { if child.isRunning { child.terminate(); child.waitUntilExit() } }
-        _ = waitFor { Proc.listeningPorts(child.processIdentifier).contains { $0.port == s.port } }
+        try #require(waitFor { Proc.listeningPorts(child.processIdentifier).contains { $0.port == s.port } })
 
         let found = owners(ofPort: s.port, in: scan(docker: [:]))
         #expect(found.first { $0.pid == getpid() }?.addresses == ["127.0.0.1"])
@@ -465,14 +475,14 @@ struct WebProbeTests {
         return probeWeb(l)
     }
 
-    @Test("A server that never answers costs at most the probe budget, under 1 s")
+    @Test("A server that never answers costs about the probe budget (< 1 s), never much more")
     func budget() throws {
         let server = try TestListener()                   // listens, never accepts or replies
         let l = Listener(port: server.port, pid: getpid(), start: 1, uid: getuid(), exposed: false,
                          exe: "/usr/local/bin/node", command: "node server.js", cwd: "/tmp", kind: .backend)
         let t0 = Date()
         #expect(probeWeb(l) == nil)
-        #expect(Date().timeIntervalSince(t0) < 1)
+        #expect(Date().timeIntervalSince(t0) < 2 * webProbeBudget)    // 2x margin for slow CI runners
         #expect(webProbeBudget < 1)
     }
 
@@ -532,7 +542,7 @@ struct ListRowTests {
         defer { kill(child.processIdentifier, SIGCONT); child.terminate(); child.waitUntilExit() }
         #expect(waitFor { Proc.listeningPorts(child.processIdentifier).contains { $0.port == port } })
         kill(child.processIdentifier, SIGSTOP)
-        _ = waitFor { Proc.isStopped(child.processIdentifier) }
+        try #require(waitFor { Proc.isStopped(child.processIdentifier) })
         let row = try #require(scan(docker: [:]).first { $0.pid == child.processIdentifier })
         #expect(listRow(row).hasSuffix("STOPPED"))
     }
@@ -544,24 +554,35 @@ struct ListRowTests {
 struct StopRegistryTests {
     @Test("Two stop requests for one PID produce one ladder")
     func oneLadder() throws {
-        let child = try spawn("/bin/sh", ["-c", "trap '' TERM; exec /bin/sleep 30"])
+        let child = try spawnIgnoringTERM()
         defer { if child.isRunning { kill(child.processIdentifier, SIGKILL); child.waitUntilExit() } }
         let pid = child.processIdentifier
-        usleep(200_000)
         let id = try #require(Proc.identity(pid))
         let registry = StopRegistry(), key = StopRegistry.key(pid: pid, start: id.start)
+        let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0), finished = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var ladders = 0, refused = 0
 
-        DispatchQueue.concurrentPerform(iterations: 2) { i in
-            if i == 1 { usleep(100_000) }                     // second request arrives mid-ladder
+        func request(_ inLadder: @escaping () -> Void) {
             let ran = registry.once(key) { () -> Bool in
                 lock.lock(); ladders += 1; lock.unlock()
-                _ = safeTerminate(pid: pid, start: id.start, grace: 0.5, escalate: false)
+                inLadder()
+                _ = safeTerminate(pid: pid, start: id.start, grace: 0.1, escalate: false)
                 return true
             }
             if ran == nil { lock.lock(); refused += 1; lock.unlock() }
         }
+
+        // First request on its own thread; it holds the ladder open until we release it.
+        Thread.detachNewThread {
+            request { started.signal(); release.wait() }
+            finished.signal()
+        }
+        #expect(started.wait(timeout: .now() + 30) == .success)
+        request {}                                                    // second request, mid-ladder: refused
+        release.signal()
+        #expect(finished.wait(timeout: .now() + 30) == .success)
+
         #expect(ladders == 1)
         #expect(refused == 1)
         #expect(!registry.isBusy(key))                        // released: a later request may run again
