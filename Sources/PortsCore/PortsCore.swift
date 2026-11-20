@@ -15,11 +15,33 @@ import Foundation
 
 // MARK: - Model
 
-public enum Kind: Int, CaseIterable, Sendable {
-    case frontend, backend, database, docker, system
-    public var title: String { ["Frontend", "Backend", "Databases", "Docker", "System & Apps"][rawValue] }
-    public var symbol: String { ["macwindow", "server.rack", "cylinder.split.1x2", "shippingbox", "gearshape"][rawValue] }
-    public var isDeveloper: Bool { self != .system }
+public enum Kind: Int, CaseIterable, Sendable, Codable {
+    case frontend, backend, database, docker, tunnel, ai, service, app, system
+    public var title: String {
+        ["Frontend", "Backend", "Databases", "Containers", "Tunnels & forwards", "AI & agents",
+         "Background services", "Apps", "System"][rawValue]
+    }
+    public var symbol: String {
+        ["macwindow", "server.rack", "cylinder.split.1x2", "shippingbox", "arrow.left.arrow.right.circle", "brain",
+         "gearshape.2", "square.grid.2x2", "gearshape"][rawValue]
+    }
+    /// At most 14 characters, for the `ports list` column.
+    public var shortTitle: String {
+        ["Frontend", "Backend", "Databases", "Containers", "Tunnels", "AI & agents", "Services", "Apps", "System"][rawValue]
+    }
+    /// Stable name for settings files (rawValues may be reordered).
+    public var id: String { ["frontend", "backend", "database", "container", "tunnel", "ai", "service", "app", "system"][rawValue] }
+    public init?(id: String) { guard let k = Kind.allCases.first(where: { $0.id == id }) else { return nil }; self = k }
+    public init(from decoder: Decoder) throws {
+        let id = try decoder.singleValueContainer().decode(String.self)
+        guard let k = Kind(id: id) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "unknown kind \(id)"))
+        }
+        self = k
+    }
+    public func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(id) }
+    /// Developer view: things you run while developing (not apps, background services or the OS).
+    public var isDeveloper: Bool { rawValue <= Kind.ai.rawValue }
 }
 public enum Filter: Int, Sendable { case developer, system, all }
 
@@ -72,7 +94,7 @@ func ntop<T>(_ family: Int32, _ addr: T) -> String {
     return ok ? String(cString: buf) : "?"
 }
 
-public struct Listener: Equatable {
+public struct Listener: Equatable, Sendable {
     public let port: Int
     public let pid: pid_t
     public let start: UInt64        // process start time (µs) — identity check against PID reuse
@@ -100,6 +122,14 @@ public struct Listener: Equatable {
     public var connections = 0             // established TCP connections on this port
     public var workers: [pid_t] = []       // worker processes folded into this row
     public var project: Project? = nil
+    // Phase 3 classification
+    public var framework: String? = nil    // display name from the framework table
+    public var confidence = 0              // 0–100
+    public var tier: SafetyTier = .warning
+    public var detectedKind: Kind? = nil   // set when an override moved the row to another category
+    public var override: Override? = nil
+    /// The category Ports detected. Safety decisions (stop policy, probing) always use this, never an override.
+    public var baseKind: Kind { detectedKind ?? kind }
     public var isIdle: Bool { connections == 0 }
     public var startCommand: String { PortsCore.startCommand(cwd: cwd, argv: argv) }
 
@@ -248,19 +278,6 @@ func parseDockerPorts(_ out: String) -> [Int: String] {
 
 // MARK: - Classification (edit these lists to teach it about your tools)
 
-let dbNames = ["postgres", "mysqld", "mariadbd", "mongod", "redis-server", "memcached", "clickhouse",
-               "influxd", "cockroach", "elasticsearch", "opensearch", "neo4j", "couchdb", "rabbitmq",
-               "nats-server", "kafka", "surreal", "valkey-server"]
-let frontendTools = ["vite", "next", "next-server", "astro", "nuxt", "webpack", "react-scripts", "parcel",
-                     "svelte-kit", "remix", "gatsby", "ng", "live-server", "http-server", "eleventy",
-                     "storybook", "expo", "metro", "serve"]
-let backendTools = ["node", "python", "python3", "ruby", "php", "java", "go", "deno", "bun", "uvicorn",
-                    "gunicorn", "flask", "manage.py", "rails", "puma", "dotnet", "cargo", "nodemon", "tsx",
-                    "ts-node", "nest", "air", "hypercorn", "fastapi", "supabase"]
-let appTools = ["claude", "agy", "electron"]                   // dev *apps*, not servers you started
-let wellKnownPorts = [5432: "postgres", 3306: "mysql", 6379: "redis", 27017: "mongo", 9200: "elasticsearch",
-                      5672: "rabbitmq", 11211: "memcached", 1433: "sql server"]
-
 let interpreters: Set = ["node", "ruby", "bun", "deno", "php", "perl", "java"]     // + python*
 let npxLike: Set = ["npx", "bunx", "pnpx"]                                         // <runner> <tool>
 let runnerSubcommands = ["npm": ["exec"], "pnpm": ["exec", "dlx"], "yarn": ["exec", "dlx"], "bun": ["x"],
@@ -344,50 +361,6 @@ func identityNames(exe: String, argv: [String]) -> [String] {
     }
     return names.map { $0.lowercased() }.filter { !$0.isEmpty }
 }
-func matches(_ toks: [String], _ tools: [String]) -> String? {
-    for t in toks { for tool in tools where t == tool || t.hasPrefix(tool + ".") || t.hasPrefix(tool + "-") { return tool } }
-    return nil
-}
-
-/// "Visual Studio Code", "VS Code ext: oracle.sql-developer", "rapportd"…
-public func appName(_ exe: String) -> String {
-    if let r = exe.range(of: "/.vscode/extensions/") {
-        let ext = exe[r.upperBound...].split(separator: "/").first.map(String.init) ?? ""
-        return "VS Code ext: " + ext.replacingOccurrences(of: #"-\d.*$"#, with: "", options: .regularExpression)
-    }
-    if let r = exe.range(of: ".app/") { return basename(String(exe[..<r.lowerBound])) }
-    return basename(exe)
-}
-
-public func classify(_ l: Listener) -> (Kind, String) {
-    let names = identityNames(exe: l.exe, argv: l.argv)
-    let exeName = names[0]
-    let argv0 = names.count > 1 ? names[1] : exeName
-
-    if let c = l.container { return (.docker, c) }
-    if let runtime = containerRuntime(exe: l.exe) {
-        let guess = wellKnownPorts[l.port].map { "\($0)? · " } ?? ""
-        return (.docker, "\(guess)\(runtime) engine")
-    }
-    // A script run by node/python is not a database just because of its file name; a java main class can be.
-    let dbCandidates = isInterpreter(exeName) && exeName != "java" ? Array(names.prefix(2)) : names
-    if let db = matches(dbCandidates, dbNames) { return (.database, db) }
-    // Dev apps & editor helpers (they embed node/java, but you didn't start them).
-    if appTools.contains(argv0) || l.exe.contains("/.vscode/extensions/") || l.exe.contains("/.gemini/")
-        || (l.exe.contains(".app/") && !backendTools.contains(exeName)) {
-        return (.system, appTools.contains(argv0) ? argv0 : appName(l.exe))
-    }
-    let isOS = ["/System/", "/usr/libexec/", "/usr/sbin/", "/sbin/"].contains(where: l.exe.hasPrefix)
-    // Most specific first: the tool a runtime is running beats the runtime itself (node -> next).
-    let specific = Array(names.dropFirst())
-    // Frontend tools are JS tools: a python script called "serve.py" is not the `serve` package.
-    let jsOrNative = !isInterpreter(exeName) || ["node", "bun", "deno"].contains(exeName)
-    let feCandidates = jsOrNative ? specific : Array(specific.prefix(1))
-    if !isOS, let fe = matches(feCandidates, frontendTools) ?? matches([exeName], frontendTools) { return (.frontend, fe) }
-    if !isOS, let be = matches(specific.reversed(), backendTools) ?? matches([exeName], backendTools) { return (.backend, be) }
-    return (.system, appName(l.exe))
-}
-
 // MARK: - Web probe (menu open only; loopback addresses only; < 1 s per listener; read-only)
 
 public enum WebScheme: String, Sendable { case http, https }
@@ -443,7 +416,7 @@ func exchange(host: String, port: Int, payload: [UInt8], deadline: Date) -> [UIn
 /// Never Databases-kind, system or suspended processes, and never a non-loopback address.
 public func isWebCandidate(_ l: Listener) -> Bool {
     if case .specific = l.exposure { return false }       // bound to a LAN address only: not reachable on loopback
-    return !l.stopped && l.kind != .database && (l.container != nil || l.kind == .frontend || l.kind == .backend)
+    return !l.stopped && l.baseKind != .database && (l.container != nil || l.baseKind == .frontend || l.baseKind == .backend)
 }
 
 public let webProbeBudget: TimeInterval = 0.8             // whole probe of one listener, all attempts included
@@ -481,7 +454,7 @@ public enum KnownPorts {
                                                          "AirPlayXPCHelper", "mDNSResponder", "identityservicesd"]
 
     public static func restartsAutomatically(_ l: Listener) -> Bool {
-        l.kind == .system && restartedByLaunchd.contains(appName(l.exe))
+        l.baseKind == .system && restartedByLaunchd.contains(appName(l.exe))
     }
 
     public static var currentOSMajor: Int { ProcessInfo.processInfo.operatingSystemVersion.majorVersion }
@@ -495,7 +468,7 @@ public enum KnownPorts {
     public static let airPlaySettingsURL = URL(string: "x-apple.systempreferences:com.apple.AirDrop-Handoff-Settings.extension")!
 
     static func isAirPlayReceiver(_ l: Listener) -> Bool {
-        l.kind == .system && appName(l.exe) == "ControlCenter" && (l.port == 5000 || l.port == 7000)
+        l.baseKind == .system && appName(l.exe) == "ControlCenter" && (l.port == 5000 || l.port == 7000)
     }
 
     /// The settings action that actually frees the port, if there is one.
@@ -505,7 +478,7 @@ public enum KnownPorts {
 
     /// Why a system process holds a common dev port, and how to free it.
     public static func explanation(_ l: Listener, osMajor: Int = currentOSMajor) -> String? {
-        guard l.kind == .system, commonDevPorts.contains(l.port) else { return nil }
+        guard !l.baseKind.isDeveloper, commonDevPorts.contains(l.port) else { return nil }
         let app = appName(l.exe)
         if isAirPlayReceiver(l) {
             return "AirPlay Receiver (ControlCenter) uses port \(l.port). To free it, turn off System Settings › "
@@ -567,9 +540,12 @@ public func scan(docker: [Int: String], cache: ProcessCache = .shared, sampleCPU
             l.connections = sockets.established[port] ?? 0
             l.project = project
             l.addresses = addrs[port] ?? l.addresses
-            let (kind, tool) = classify(l)
-            l.kind = kind
-            l.label = rowLabel(kind: kind, tool: tool, cwd: cwd, project: project)
+            let c = classifyDetailed(l)
+            l.kind = c.kind
+            l.framework = c.framework?.name
+            l.confidence = c.confidence
+            l.tier = c.tier
+            l.label = rowLabel(kind: c.kind, tool: c.name, cwd: cwd, project: project)
             out.append(l)
         }
     }
@@ -591,7 +567,7 @@ public func rowLabel(kind: Kind, tool: String, cwd: String, project: Project?) -
 public func listRow(_ l: Listener) -> String {
     [":\(l.port)".padding(toLength: 7, withPad: " ", startingAt: 0),
      "\(l.pid)".padding(toLength: 7, withPad: " ", startingAt: 0),
-     l.kind.title.padding(toLength: 14, withPad: " ", startingAt: 0),
+     l.kind.shortTitle.padding(toLength: 14, withPad: " ", startingAt: 0),
      (l.exposed ? "LAN " : "    ") + l.label + (l.workers.isEmpty ? "" : "  ×\(l.workers.count + 1) workers")
         + (l.stopped ? "  STOPPED" : "")].joined(separator: " ")
 }
@@ -623,10 +599,10 @@ public enum StopPolicy: Equatable, Sendable {
     case dataStore      // databases & brokers: 15 s grace, never an automatic SIGKILL
 
     public init(_ l: Listener) {
-        switch l.kind {
+        switch l.baseKind {
         case .frontend, .backend: self = .devServer
         case .database: self = .dataStore
-        case .system, .docker: self = .app     // containers stop via `docker stop`, never this ladder
+        case .docker, .tunnel, .ai, .service, .app, .system: self = .app   // containers stop via `docker stop`
         }
     }
 
