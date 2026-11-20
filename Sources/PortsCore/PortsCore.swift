@@ -10,8 +10,8 @@
 // processes can be signalled; the only child process ever started is the docker CLI, from a
 // fixed absolute path, with a minimal environment, a timeout and validated arguments.
 
-import AppKit
 import Darwin
+import Foundation
 
 // MARK: - Model
 
@@ -89,6 +89,19 @@ public struct Listener: Equatable {
     public var stopped = false      // suspended (SIGSTOP / Ctrl-Z): holds the port but serves nothing
     public var kind: Kind = .system
     public var label = ""
+    // Phase 2 process model
+    public var ppid: pid_t = 0
+    public var pgid: pid_t = 0
+    public var tty: Int32? = nil           // controlling terminal device; nil = none
+    public var chain: [Ancestor] = []      // parent → … → launchd
+    public var memory: UInt64 = 0          // resident bytes (own processes only)
+    public var cpuNanos: UInt64 = 0        // total CPU time
+    public var cpuPercent: Double? = nil   // sampled only while the panel is open
+    public var connections = 0             // established TCP connections on this port
+    public var workers: [pid_t] = []       // worker processes folded into this row
+    public var project: Project? = nil
+    public var isIdle: Bool { connections == 0 }
+    public var startCommand: String { PortsCore.startCommand(cwd: cwd, argv: argv) }
 
     public init(port: Int, pid: pid_t, start: UInt64, uid: uid_t, exposed: Bool,
                 exposure: Exposure? = nil, exe: String, command: String, argv: [String]? = nil, cwd: String, container: String? = nil,
@@ -140,13 +153,7 @@ public enum Proc {
     }
 
     /// True when the process is suspended (kinfo_proc p_stat == SSTOP).
-    public static func isStopped(_ pid: pid_t) -> Bool {
-        var info = kinfo_proc()
-        var size = MemoryLayout<kinfo_proc>.stride
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
-        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return false }
-        return Int32(info.kp_proc.p_stat) == SSTOP
-    }
+    public static func isStopped(_ pid: pid_t) -> Bool { state(pid).stopped }
 
     public static func exePath(_ pid: pid_t) -> String {
         var buf = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
@@ -166,26 +173,7 @@ public enum Proc {
     /// argv via KERN_PROCARGS2: [argc:int32][exec path\0][padding \0…][argv0\0][argv1\0]…
     public static func commandLine(_ pid: pid_t) -> String { arguments(pid).joined(separator: " ") }
 
-    public static func arguments(_ pid: pid_t) -> [String] {
-        var argmax: Int32 = 0
-        var size = MemoryLayout<Int32>.size
-        var mib = [CTL_KERN, KERN_ARGMAX]
-        guard sysctl(&mib, 2, &argmax, &size, nil, 0) == 0 else { return [] }
-        var buf = [UInt8](repeating: 0, count: Int(argmax))
-        size = buf.count
-        mib = [CTL_KERN, KERN_PROCARGS2, pid]
-        guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0, size > 4 else { return [] }
-        let argc = buf.withUnsafeBytes { $0.load(as: Int32.self) }
-        var i = 4
-        while i < size && buf[i] != 0 { i += 1 }      // skip exec path
-        while i < size && buf[i] == 0 { i += 1 }      // skip padding
-        var args: [String] = [], start = i
-        while i < size && args.count < argc {
-            if buf[i] == 0 { args.append(String(decoding: buf[start..<i], as: UTF8.self)); start = i + 1 }
-            i += 1
-        }
-        return args
-    }
+    public static func arguments(_ pid: pid_t) -> [String] { procArgs(pid).args }
 
     public struct BoundPort: Equatable {
         public let port: Int
@@ -195,31 +183,7 @@ public enum Proc {
     }
 
     /// Listening TCP sockets of one process, with the address each is bound to.
-    public static func listeningPorts(_ pid: pid_t) -> [BoundPort] {
-        let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
-        guard bytes > 0 else { return [] }
-        let stride = MemoryLayout<proc_fdinfo>.stride
-        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(bytes) / stride + 16)
-        let got = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, Int32(fds.count * stride))
-        guard got > 0 else { return [] }
-
-        var result: [BoundPort] = []
-        for fd in fds.prefix(Int(got) / stride) where fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
-            var si = socket_fdinfo()
-            let siSize = Int32(MemoryLayout<socket_fdinfo>.size)
-            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &si, siSize) == siSize,
-                  si.psi.soi_kind == SOCKINFO_TCP else { continue }
-            let tcp = si.psi.soi_proto.pri_tcp
-            guard tcp.tcpsi_state == TSI_S_LISTEN else { continue }
-            let ini = tcp.tcpsi_ini
-            let port = Int(UInt16(bigEndian: UInt16(truncatingIfNeeded: ini.insi_lport)))
-            let v4 = ini.insi_vflag & UInt8(INI_IPV4) != 0
-            let exposure = v4 ? Exposure(ipv4: ini.insi_laddr.ina_46.i46a_addr4) : Exposure(ipv6: ini.insi_laddr.ina_6)
-            let address = v4 ? ntop(AF_INET, ini.insi_laddr.ina_46.i46a_addr4) : ntop(AF_INET6, ini.insi_laddr.ina_6)
-            result.append(BoundPort(port: port, exposure: exposure, address: address))
-        }
-        return result
-    }
+    public static func listeningPorts(_ pid: pid_t) -> [BoundPort] { sockets(pid).listening }
 }
 
 // MARK: - Docker (the only external command; fixed path, minimal env, timeout)
@@ -253,27 +217,6 @@ public func containerName(exe: String, port: Int, docker: [Int: String]) -> Stri
 /// Query the container CLI only when a runtime's proxy is actually listening.
 public func needsContainerQuery(_ listeners: [Listener]) -> Bool {
     dockerPath != nil && listeners.contains { containerRuntime(exe: $0.exe) != nil }
-}
-
-public func run(_ path: String, _ args: [String], timeout: TimeInterval = 3) -> (out: String, ok: Bool) {
-    let p = Process()
-    p.executableURL = URL(fileURLWithPath: path)
-    p.arguments = args                                            // argv array: no shell, no injection
-    p.environment = ["HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
-    let pipe = Pipe()
-    p.standardOutput = pipe
-    p.standardError = pipe
-    do { try p.run() } catch { return ("", false) }
-    let done = DispatchSemaphore(value: 0)
-    var data = Data()
-    DispatchQueue.global(qos: .utility).async { data = pipe.fileHandleForReading.readDataToEndOfFile(); done.signal() }
-    if done.wait(timeout: .now() + timeout) == .timedOut {
-        p.terminate()
-        _ = done.wait(timeout: .now() + 1)
-        return ("Timed out after \(Int(timeout)) s", false)
-    }
-    p.waitUntilExit()
-    return (String(decoding: data, as: UTF8.self), p.terminationStatus == 0)
 }
 
 public func isSafeContainerName(_ s: String) -> Bool {
@@ -579,33 +522,69 @@ public func showsInDeveloperView(_ l: Listener) -> Bool {
 
 // MARK: - Scan (runs off the main thread)
 
-public func scan(docker: [Int: String]) -> [Listener] {
+/// One scan of every listening socket. Static per-process data comes from `cache` (keyed by pid + start
+/// time); what can change (ppid, state, TTY, metrics, connections, branch) is read every time.
+/// `sampleCPU` (panel open only) adds CPU % from the previous sample.
+public func scan(docker: [Int: String], cache: ProcessCache = .shared, sampleCPU: Bool = false,
+                 cpu: CPUSampler = .shared) -> [Listener] {
     var out: [Listener] = []
+    var branches: [String: String?] = [:]          // repo root -> branch, read once per scan
+    let now = DispatchTime.now().uptimeNanoseconds
     for pid in Proc.allPIDs() {
-        let ports = Proc.listeningPorts(pid)
-        guard !ports.isEmpty, let id = Proc.identity(pid) else { continue }
-        let exe = Proc.exePath(pid), args = Proc.arguments(pid), cwd = Proc.cwd(pid)
-        let cmd = args.joined(separator: " "), stopped = Proc.isStopped(pid)
+        let sockets = Proc.sockets(pid)
+        guard !sockets.listening.isEmpty, let bsd = Proc.bsdInfo(pid) else { continue }
+        let info = cache.info(pid: pid, start: bsd.start)
+        let exe = info.exe, args = info.argv, cwd = info.cwd
+        let cmd = args.joined(separator: " "), state = Proc.state(pid)
+        let metrics = Proc.metrics(pid)
+        let chain = Proc.launcherChain(parent: bsd.ppid, cache: cache)
+        var project = info.project
+        if let root = project?.repoRoot {
+            if branches[root] == nil { branches[root] = .some(GitInfo.branch(repoRoot: root)) }
+            project?.branch = branches[root] ?? nil
+        }
+        let cpuPct = sampleCPU ? metrics.flatMap {
+            cpu.sample(key: ProcessCache.key(pid, bsd.start), cpuNanos: $0.cpuNanos, at: now)
+        } : nil
         var byPort: [Int: Exposure] = [:], addrs: [Int: [String]] = [:]
-        for p in ports {
+        for p in sockets.listening {
             byPort[p.port] = byPort[p.port].map { $0.widest(p.exposure) } ?? p.exposure
             if !(addrs[p.port] ?? []).contains(p.address) { addrs[p.port, default: []].append(p.address) }
         }
         for (port, exposure) in byPort {
-            var l = Listener(port: port, pid: pid, start: id.start, uid: id.uid, exposed: exposure.isNetworkReachable,
+            var l = Listener(port: port, pid: pid, start: bsd.start, uid: bsd.uid, exposed: exposure.isNetworkReachable,
                              exposure: exposure, exe: exe, command: cmd.isEmpty ? exe : cmd,
                              argv: args.isEmpty ? [exe] : args, cwd: cwd,
                              container: containerName(exe: exe, port: port, docker: docker))
-            l.stopped = stopped
+            l.stopped = state.stopped
+            l.tty = state.tty
+            l.ppid = bsd.ppid
+            l.pgid = bsd.pgid
+            l.chain = chain
+            l.memory = metrics?.resident ?? 0
+            l.cpuNanos = metrics?.cpuNanos ?? 0
+            l.cpuPercent = cpuPct
+            l.connections = sockets.established[port] ?? 0
+            l.project = project
             l.addresses = addrs[port] ?? l.addresses
             let (kind, tool) = classify(l)
             l.kind = kind
-            let folder = (cwd.hasPrefix(home + "/")) ? basename(cwd) : ""
-            l.label = (kind.isDeveloper && kind != .docker && !folder.isEmpty) ? "\(tool) · \(folder)" : tool
+            l.label = rowLabel(kind: kind, tool: tool, cwd: cwd, project: project)
             out.append(l)
         }
     }
-    return out.sorted { ($0.kind.rawValue, $0.port, $0.pid) < ($1.kind.rawValue, $1.port, $1.pid) }
+    cache.endScan()
+    if sampleCPU { cpu.forget(keeping: Set(out.map { ProcessCache.key($0.pid, $0.start) })) }
+    return groupWorkers(out).sorted { ($0.kind.rawValue, $0.port, $0.pid) < ($1.kind.rawValue, $1.port, $1.pid) }
+}
+
+/// "vite · shop › web · main" for dev servers; the folder name when no project is found (home folders only);
+/// just the tool for containers and system processes.
+public func rowLabel(kind: Kind, tool: String, cwd: String, project: Project?) -> String {
+    guard kind.isDeveloper && kind != .docker else { return tool }
+    if let project { return "\(tool) · \(project.displayWithBranch)" }
+    let folder = cwd.hasPrefix(home + "/") ? basename(cwd) : ""
+    return folder.isEmpty ? tool : "\(tool) · \(folder)"
 }
 
 /// One `ports list` row; the LAN and STOPPED badges match the menu.
@@ -613,7 +592,8 @@ public func listRow(_ l: Listener) -> String {
     [":\(l.port)".padding(toLength: 7, withPad: " ", startingAt: 0),
      "\(l.pid)".padding(toLength: 7, withPad: " ", startingAt: 0),
      l.kind.title.padding(toLength: 14, withPad: " ", startingAt: 0),
-     (l.exposed ? "LAN " : "    ") + l.label + (l.stopped ? "  STOPPED" : "")].joined(separator: " ")
+     (l.exposed ? "LAN " : "    ") + l.label + (l.workers.isEmpty ? "" : "  ×\(l.workers.count + 1) workers")
+        + (l.stopped ? "  STOPPED" : "")].joined(separator: " ")
 }
 
 /// One fresh scan with container labels queried in the same pass (never a stale port map).
