@@ -5,10 +5,11 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 
 ## Current state
 
-- **Phase:** 2 (richer process model), gates passed locally; PR open, waiting for CI
-- **Branch:** `phase-2` (from `main` at `42e64f2`)
+- **Phase:** 3 (detection and classification), gates passed locally; PR open, waiting for CI
+- **Branch:** `phase-3` (from `phase-2`)
+- **PRs:** #5 phase-2 → main (CI green)
 - **Last commit:** see `git log -1 phase-2`
-- **Next step:** CI green on the Phase 2 PR, then create `phase-3` from `phase-2`.
+- **Next step:** CI green on the Phase 3 PR, then create `phase-4` from `phase-3`.
 
 ## Decisions
 
@@ -22,9 +23,12 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 
 | Phase | build release | build tests | swift test ×5 | build_app | harness --check | ui_smoke | scan warm | RSS | idle CPU | CI |
 |-------|---------------|-------------|---------------|-----------|-----------------|----------|-----------|-----|----------|----|
-| 2     | 0 warnings    | 0 warnings  | 78/78 ×5      | pass      | pass (13 ports, 0 left) | pass | 2.0–6.7 ms (579 procs) | footprint 17.5 MB (RSS 56 MB) | n/a | pending |
+| 2     | 0 warnings    | 0 warnings  | 78/78 ×5      | pass      | pass (13 ports, 0 left) | pass | 2.0–6.7 ms (579 procs) | footprint 17.5 MB (RSS 56 MB) | n/a | pass (#5) |
+| 3     | 0 warnings    | 0 warnings  | 94/94 ×5 (130 matcher cases) | pass | pass (14 ports + AirPlay explainer, 0 left) | pass | 2.9–3.7 ms (627 procs) | footprint 19.2 MB (RSS 60 MB) | n/a | pending |
 
 Baseline before Phase 2 (main, `PortsApp --list`): scan 8–15 ms warm, 48 tests pass.
+
+Perf numbers come from `Scripts/perf_check.sh` (added in Phase 3), with the harness running.
 
 ## Accessibility
 

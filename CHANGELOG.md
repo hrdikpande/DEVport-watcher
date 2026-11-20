@@ -8,6 +8,31 @@ All notable changes to this project will be documented here.
 - Added characterization tests and CI.
 - Added initial open-source governance documentation.
 
+### Phase 3 — detection and classification
+- Framework table (`Frameworks.swift`) with about 120 entries: frontend
+  tools, backend frameworks, databases and brokers, tunnels, AI servers. Each
+  entry has matchers, a category, a display name, a default port and whether
+  it speaks HTTP. Some frameworks are recognised by argv (`manage.py
+  runserver`, `php artisan serve`, `next dev --turbo`), some by the launching
+  parent (`go run`, `cargo run`), some by package.json dependencies (Express,
+  Nest, Fastify, Hono, Koa), and some by a bundled runtime (Kibana, LM Studio).
+  Directory names are still never used.
+- New categories: Containers (was Docker), Tunnels & forwards, AI & agents
+  (model servers, MCP servers), Background services (your launchd jobs), Apps
+  (split from System).
+- Each row has a confidence score (0–100) and a safety tier (safe, warning,
+  blocked), shown in its details.
+- Known-ports table: owner, explanation and how to free it, for AirPlay,
+  common dev defaults, database ports, the ngrok inspector, CUPS, Kerberos,
+  SMB/AFP, Docker/Kubernetes APIs and the ephemeral range. `ports list` prints
+  the explanation under a system process that holds a dev port.
+- Customize menu on every row: Rename, Move to (category), Note, Link to App,
+  Favorite, Hide, Mute, Reset. Stored in
+  `~/Library/Application Support/Ports/overrides.json`. An override changes how
+  a row is shown, never how it is stopped or probed.
+- Row icons: the owning app's icon, else the project's `public/` or `static/`
+  favicon, else the category symbol.
+
 ### Phase 2 — richer process model
 - Each listener now records its parent PID, process group, controlling
   terminal and launcher chain (parent → … → launchd). The menu shows

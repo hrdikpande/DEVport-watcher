@@ -96,3 +96,20 @@ New Phase 1 tests live in `Tests/PortsCoreTests/Phase1Tests.swift`.
 - `/bin/sh` reports itself as `bash` in the process table, so launcher chains
   show `bash`.
 
+## Found during Phase 3
+
+- `exePath` rules (Kibana, LM Studio) match where a bundled runtime is
+  installed, never the user's working directory or a script's folders. The
+  Phase 1 rule against matching folder names still holds.
+- Express, Fastify, Hono and Koa can't be seen from argv; they are inferred
+  from the project's package.json dependencies, at confidence 60.
+- Background services means your own process with launchd as its parent. An
+  orphan reparented to launchd looks the same until Phase 4's orphan analyzer
+  and Phase 5's launchd lookup tell them apart.
+- Overrides are keyed by executable, the tool it runs, and the project root
+  (or cwd), so they survive restarts. A port number is not part of the key.
+- The Settings table for overrides and custom framework matchers comes with the
+  Settings window (Phase 10). For now the row's Customize menu edits overrides.
+- ui_smoke reads only top-level menu rows. The Customize submenu was checked by
+  build only.
+

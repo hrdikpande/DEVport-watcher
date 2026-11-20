@@ -13,20 +13,20 @@ marked `have` describe current behavior; numbered items are planned phases.
 - [ ] Bind probe for invisible owners (5)
 - [ ] Configurable refresh and pause (10)
 - [ ] Adaptive sleep, wake, battery, and Low Power Mode scanning (10)
-- [ ] Known-port hints (3)
+- [x] Known-port hints (3)
 - [ ] Database detection on non-standard ports (7)
 
 ## Classification and project context
 
-- [x] Frontend, backend, database, Docker, and System & Apps groups (have)
+- [x] Category model: Frontend, Backend, Databases, Containers, Tunnels & forwards, AI & agents, Background services, Apps, System (1, 3)
 - [x] Tool classification table (have)
-- [ ] Large data-driven framework table (3)
-- [ ] Confidence scores and safety tiers (3)
+- [x] Large data-driven framework table (3)
+- [x] Confidence scores and safety tiers (3)
 - [x] Project root, monorepo, and Git branch detection incl. worktrees (2)
 - [ ] Launcher, editor, terminal, and coding-agent attribution (4)
 - [ ] Duplicate-instance detection (4)
-- [ ] User classification overrides (3)
-- [ ] Application icons and project favicons (3)
+- [x] User classification overrides: rename, move, link, note, favorite, hide, mute (3; Settings table in 10)
+- [x] Application icons and project favicons (3)
 
 ## Process details and cleanup
 
