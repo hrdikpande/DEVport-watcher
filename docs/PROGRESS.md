@@ -5,10 +5,10 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 
 ## Current state
 
-- **Phase:** 2 (richer process model), in progress
+- **Phase:** 2 (richer process model), gates passed locally; PR open, waiting for CI
 - **Branch:** `phase-2` (from `main` at `42e64f2`)
 - **Last commit:** see `git log -1 phase-2`
-- **Next step:** implement Phase 2 items 1–8, add `Scripts/ui_smoke.sh`, run gates.
+- **Next step:** CI green on the Phase 2 PR, then create `phase-3` from `phase-2`.
 
 ## Decisions
 
@@ -22,10 +22,20 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 
 | Phase | build release | build tests | swift test ×5 | build_app | harness --check | ui_smoke | scan warm | RSS | idle CPU | CI |
 |-------|---------------|-------------|---------------|-----------|-----------------|----------|-----------|-----|----------|----|
-| 2     |               |             |               |           |                 |          |           |     | n/a      |    |
+| 2     | 0 warnings    | 0 warnings  | 78/78 ×5      | pass      | pass (13 ports, 0 left) | pass | 2.0–6.7 ms (579 procs) | footprint 17.5 MB (RSS 56 MB) | n/a | pending |
 
 Baseline before Phase 2 (main, `PortsApp --list`): scan 8–15 ms warm, 48 tests pass.
 
+## Accessibility
+
+- 2026-11-21: `UI elements enabled` = true for this terminal; `Scripts/ui_smoke.sh` reads the status-item
+  menu (an accessory app's status item lives in `menu bar 1`, not 2).
+
 ## Open issues
 
-- (none yet)
+- Memory gate is measured as physical footprint (Activity Monitor "Memory"), since raw RSS of any AppKit
+  status-item app is ~50 MB of shared framework pages. Both numbers are recorded. Owner may overrule.
+- A `build/Ports.app` instance (PID 79213) started before this session is still running; I didn't start it,
+  so I'm leaving it alone.
+- `ld: warning: search path '/Library/Developer/CommandLineTools/...' not found` comes from this Mac's
+  toolchain setup, not from code; it is excluded from the warning counts.
