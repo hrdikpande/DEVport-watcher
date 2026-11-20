@@ -417,7 +417,10 @@ public func classify(_ l: Listener) -> (Kind, String) {
     let isOS = ["/System/", "/usr/libexec/", "/usr/sbin/", "/sbin/"].contains(where: l.exe.hasPrefix)
     // Most specific first: the tool a runtime is running beats the runtime itself (node -> next).
     let specific = Array(names.dropFirst())
-    if !isOS, let fe = matches(specific, frontendTools) ?? matches([exeName], frontendTools) { return (.frontend, fe) }
+    // Frontend tools are JS tools: a python script called "serve.py" is not the `serve` package.
+    let jsOrNative = !isInterpreter(exeName) || ["node", "bun", "deno"].contains(exeName)
+    let feCandidates = jsOrNative ? specific : Array(specific.prefix(1))
+    if !isOS, let fe = matches(feCandidates, frontendTools) ?? matches([exeName], frontendTools) { return (.frontend, fe) }
     if !isOS, let be = matches(specific.reversed(), backendTools) ?? matches([exeName], backendTools) { return (.backend, be) }
     return (.system, appName(l.exe))
 }

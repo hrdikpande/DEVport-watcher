@@ -162,6 +162,8 @@ struct ClassifierTests {
         ClassifyCase(exe: "/usr/bin/java", argv: ["java", "-cp", "/opt/kafka/libs/*", "kafka.Kafka", "server.properties"], kind: .database, tool: "kafka"),
         ClassifyCase(exe: "/usr/local/bin/node", argv: ["node", "kafka-consumer.js"], kind: .backend, tool: "node"),
         ClassifyCase(exe: "/usr/local/bin/node", argv: ["next-server (v14.2.3)"], kind: .frontend, tool: "next"),
+        ClassifyCase(exe: "/usr/bin/python3", argv: ["python3", "serve.py"], kind: .backend, tool: "python3"),
+        ClassifyCase(exe: "/usr/local/bin/node", argv: ["node", "serve.js"], kind: .frontend, tool: "serve"),
         // Folder names must not leak into the result.
         ClassifyCase(exe: "/usr/local/bin/node", argv: ["node", "/tmp/vite-playground/server.js"], kind: .backend, tool: "node"),
         ClassifyCase(exe: "/usr/bin/python3", argv: ["python3", "/tmp/postgres-tools/api.py"], kind: .backend, tool: "python3"),
