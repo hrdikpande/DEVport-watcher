@@ -13,11 +13,12 @@ guard flags.isSubset(of: ["--timing", "--env"]) else {
 func ms(_ since: DispatchTime) -> Double { Double(DispatchTime.now().uptimeNanoseconds - since.uptimeNanoseconds) / 1e6 }
 
 let t0 = DispatchTime.now()
-let listeners = scanWithContainers()
+let listeners = applyOverrides(scanWithContainers(), OverrideStore())
 let full = ms(t0)
 
-for l in listeners {
+for l in listeners where l.override?.hidden != true {
     print(listRow(l))
+    if let why = KnownPorts.explanation(l) { print("        ↳ " + why) }
     // Environment of your own processes only; values that look like secrets are masked.
     if flags.contains("--env"), l.uid == getuid() {
         let env = maskedEnvironment(Proc.environment(l.pid))
