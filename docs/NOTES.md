@@ -54,11 +54,6 @@ New Phase 1 tests live in `Tests/PortsCoreTests/Phase1Tests.swift`.
   that owns the port. The fix is to query per runtime (supervisor-aware phase).
 - `/usr/local/bin/podman` (Intel Homebrew) is not in the lookup list. Only the
   paths named in Phase 1 were added.
-- Classification no longer reads directory names, so databases that run inside
-  a generic VM lose detection: RabbitMQ (`beam.smp`), Neo4j and other JVM
-  stores whose main class doesn't name them. Kafka (`kafka.Kafka`) and
-  Elasticsearch (main-class components) are still detected. These need a
-  per-runtime rule.
 - Stopping a launchd `KeepAlive`, `brew services` or pm2 process just makes it
   respawn. The post-stop report then shows "Still listening" with a new PID.
   Supervisor-aware stopping is a later phase.
