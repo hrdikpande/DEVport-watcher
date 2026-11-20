@@ -20,3 +20,53 @@ implemented in Phase 0.
 5. **README opening:** README must open with:
    “Ports tells developers what is running locally, why it is running, whether
    it is safe, and how to stop it — without leaving the menu bar.”
+
+## Phase 1 test changes
+
+Only the two `.knownBug` characterization tests changed. Both now assert the
+corrected behaviour and no longer carry the tag. Every other Phase 0 test is
+unchanged. The `knownBug` tag declaration stays for future use.
+
+- `Known classifier bug: path token is treated as Astro` became
+  `Classifier ignores directory names in paths`. `python3 …/astro-dashboard/app.py`
+  now expects Backend / `python3` instead of Frontend / `astro`.
+- `Known exposure bug: specific LAN bind is not exposed` became
+  `Specific LAN bind is network-reachable`. The old test built a `Listener`
+  with `exposed: false` and asserted `false`, which the model can no longer
+  express. It now builds the listener from a real `192.168.1.20` address and
+  expects `.specific("192.168.1.20")` and `exposed == true`.
+
+New Phase 1 tests live in `Tests/PortsCoreTests/Phase1Tests.swift`.
+
+## Found during Phase 1, for later
+
+- The spec file `IMPLEMENTATION_PROMPT.md` is not in the repository.
+  `Scripts/dev_harness.sh` was built from the Phase 1 item list alone. Check it
+  against the full item 11 text.
+- The menu bar badge still counts developer kinds only. System processes now
+  shown in the Developer view (KnownPorts) are not counted.
+- The background poll (every 10 s) reuses the last container map, applied only
+  to runtime proxies. If one container is replaced by another on the same port
+  behind the same proxy PID, the old name shows until the menu is opened, which
+  always re-queries.
+- With several runtimes installed, only the first container CLI found is
+  queried. Its docker context may point at a different runtime than the one
+  that owns the port. The fix is to query per runtime (supervisor-aware phase).
+- `/usr/local/bin/podman` (Intel Homebrew) is not in the lookup list. Only the
+  paths named in Phase 1 were added.
+- Classification no longer reads directory names, so databases that run inside
+  a generic VM lose detection: RabbitMQ (`beam.smp`), Neo4j and other JVM
+  stores whose main class doesn't name them. Kafka (`kafka.Kafka`) and
+  Elasticsearch (main-class components) are still detected. These need a
+  per-runtime rule.
+- Stopping a launchd `KeepAlive`, `brew services` or pm2 process just makes it
+  respawn. The post-stop report then shows "Still listening" with a new PID.
+  Supervisor-aware stopping is a later phase.
+- The web probe reads only the first reply segment, so an nginx "plain HTTP to
+  HTTPS port" body split across segments would be read as http.
+- `ports list` (CLI) does not show the bind address, Stopped state or web
+  scheme yet.
+- Row labels append the working-directory name (e.g. `python · my-project`).
+  Screenshots shared publicly may want a way to hide it.
+- `swift run` inside the harness takes about 10 s per launch. A prebuilt
+  binary would be faster, but it can go stale (that happened during Phase 1).
