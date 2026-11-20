@@ -8,6 +8,7 @@ implemented in Phase 0.
    LaunchAgent stopping. Release 2 defers database protocol handshakes, QR
    codes, ngrok/cloudflared URL discovery, multi-select cleanup, custom
    classification editing, history analytics, AI setup prompts, and MCP stop.
+   *Superseded 2026-11-21 by the owner's decision: build all of Phases 2–12, including every item listed above as deferred.*
 2. **Supervisor confirmations:** Every supervisor action confirmation must state
    what will stop, how it will stop, whether it will auto-restart, and whether
    the change persists after login.
