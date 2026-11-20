@@ -110,9 +110,9 @@ struct PortsCoreTests {
         #expect(classify(listener(from: fixture)).0.rawValue == fixture.expectedKind, "\(fixture.name)")
     }
 
-    // Phase 1 #2 will change this folder-name false positive to Backend/System.
-    @Test("Known classifier bug: path token is treated as Astro", .tags(.knownBug))
-    func knownClassifierFolderNameBug() {
+    // Phase 1 #2: a folder name in a path no longer decides the tool.
+    @Test("Classifier ignores directory names in paths")
+    func classifierIgnoresFolderNames() {
         let fixture = Listener(
             port: 4321,
             pid: 1234,
@@ -125,26 +125,28 @@ struct PortsCoreTests {
             label: ""
         )
 
-        #expect(classify(fixture).0 == .frontend)
-        #expect(classify(fixture).1 == "astro")
+        #expect(classify(fixture).0 == .backend)
+        #expect(classify(fixture).1 == "python3")
     }
 
-    // Phase 1 #1 will mark a specific non-loopback bind as exposed.
-    @Test("Known exposure bug: specific LAN bind is not exposed", .tags(.knownBug))
-    func knownSpecificBindExposureBug() {
+    // Phase 1 #1: a specific non-loopback bind is reachable from the network.
+    @Test("Specific LAN bind is network-reachable")
+    func specificBindIsExposed() {
         let fixture = Listener(
             port: 8080,
             pid: 1234,
             start: 1,
             uid: 501,
             exposed: false,
+            exposure: Exposure(ipv4: in_addr(s_addr: inet_addr("192.168.1.20"))),
             exe: "/usr/bin/python3",
             command: "python3 server.py",
             cwd: "/tmp/server",
             label: ""
         )
 
-        #expect(fixture.exposed == false)
+        #expect(fixture.exposure == .specific("192.168.1.20"))
+        #expect(fixture.exposed == true)
     }
 
     @Test("Current Docker output parser handles fixture rows", arguments: [

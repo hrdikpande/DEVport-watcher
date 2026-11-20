@@ -20,20 +20,32 @@ if [[ ! -f assets/AppIcon.icns ]]; then
   iconutil -c icns build/icon/AppIcon.iconset -o assets/AppIcon.icns
 fi
 
+# The CLI lives in Contents/Helpers: on case-insensitive APFS, MacOS/ports would overwrite MacOS/Ports.
+APP_BIN="$APP/Contents/MacOS/Ports"
+CLI_BIN="$APP/Contents/Helpers/ports"
+
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN_PATH/PortsApp" "$APP/Contents/MacOS/Ports"
-cp "$BIN_PATH/ports" "$APP/Contents/MacOS/ports"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
+cp "$BIN_PATH/PortsApp" "$APP_BIN"
+cp "$BIN_PATH/ports" "$CLI_BIN"
 cp Info.plist "$APP/Contents/Info.plist"
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+
+fail() { echo "build_app.sh: $*" >&2; exit 1; }
+for bin in "$APP_BIN" "$CLI_BIN"; do [[ -f "$bin" ]] || fail "missing $bin"; done
+cmp -s "$APP_BIN" "$CLI_BIN" && fail "$APP_BIN and $CLI_BIN are identical (one overwrote the other)"
+otool -L "$APP_BIN" | grep -q AppKit || fail "$APP_BIN does not link AppKit (is it the CLI?)"
+
+codesign --force --options runtime --sign - "$CLI_BIN"       # nested code is signed before the bundle
 codesign --force --options runtime --sign - "$APP"
 codesign --verify --strict "$APP"
 
-for bin in "$APP/Contents/MacOS/Ports" "$APP/Contents/MacOS/ports"; do
+for bin in "$APP_BIN" "$CLI_BIN"; do
   archs="$(lipo -archs "$bin")"
-  [[ "$archs" == *arm64* && "$archs" == *x86_64* ]] || { echo "Not universal: $bin ($archs)"; exit 1; }
+  [[ "$archs" == *arm64* && "$archs" == *x86_64* ]] || fail "not universal: $bin ($archs)"
+  codesign --verify --strict "$bin" || fail "bad signature: $bin"
 done
-echo "Built universal $APP"
+echo "Built universal $APP (app + Contents/Helpers/ports)"
 
 if [[ -n "${CI:-}" || "${1:-}" == "--no-install" ]]; then
   exit 0

@@ -24,6 +24,37 @@ func infoItem(_ text: String, symbol: String? = nil) -> NSMenuItem {
     return i
 }
 
+/// Menu items don't wrap; split long text into lines of at most `width` characters.
+func wrap(_ text: String, _ width: Int) -> [String] {
+    var lines: [String] = [], line = ""
+    for word in text.split(separator: " ") {
+        if !line.isEmpty && line.count + word.count + 1 > width { lines.append(line); line = "" }
+        line += (line.isEmpty ? "" : " ") + word
+    }
+    return line.isEmpty ? lines : lines + [line]
+}
+
+/// Web-probe results per process instance (pid + start time + port), shared with the scan queue.
+final class WebCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var known: [String: WebScheme?] = [:]
+
+    /// Fill `web` from the cache; with `probe`, probe candidates not seen before (in parallel).
+    func apply(_ ls: [Listener], probe: Bool) -> [Listener] {
+        func key(_ l: Listener) -> String { "\(l.pid)-\(l.start)-\(l.port)" }
+        if probe {
+            lock.lock(); let todo = ls.filter { isWebCandidate($0) && known[key($0)] == nil }; lock.unlock()
+            var found = [WebScheme?](repeating: nil, count: todo.count)
+            found.withUnsafeMutableBufferPointer { out in
+                DispatchQueue.concurrentPerform(iterations: todo.count) { out[$0] = probeWeb(todo[$0]) }
+            }
+            lock.lock(); for (l, w) in zip(todo, found) { known[key(l)] = .some(w) }; lock.unlock()
+        }
+        lock.lock(); defer { lock.unlock() }
+        return ls.map { var l = $0; l.web = known[key($0)] ?? nil; return l }
+    }
+}
+
 // MARK: - App
 
 @MainActor
@@ -33,6 +64,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let scanQueue = DispatchQueue(label: "local.portwatch.scan", qos: .userInitiated)
     var listeners: [Listener] = []
     var docker: [Int: String] = [:]
+    let web = WebCache()
+    let stops = StopRegistry()
+    var stopAlerts: [String: NSWindow] = [:]     // the one open alert of each running stop flow
     var menuOpen = false
     var scanning = false
     var filter = Filter(rawValue: UserDefaults.standard.integer(forKey: "filter")) ?? .developer {
@@ -63,15 +97,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func refresh(withDocker: Bool) {
         guard !scanning else { return }
         scanning = true
-        let wantDocker = withDocker && dockerPath != nil
         let cachedDocker = docker
+        let probe = withDocker && menuOpen          // web probes run only while the menu is open
         scanQueue.async {
+            // Menu open: query containers in this same scan. Background poll: reuse the last map —
+            // scan() only applies it to container-runtime proxies, so a native process never inherits it.
             var map = cachedDocker
             var result = scan(docker: map)
-            if wantDocker && result.contains(where: { $0.kind == .docker }) {
-                map = dockerPorts()
+            if withDocker {
+                map = needsContainerQuery(result) ? dockerPorts() : [:]
                 result = scan(docker: map)
             }
+            result = self.web.apply(result, probe: probe)
             RunLoop.main.perform(inModes: [.common]) {
                 MainActor.assumeIsolated {
                     self.scanning = false
@@ -100,7 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func build() {
         menu.removeAllItems()
         let shown = listeners.filter {
-            switch filter { case .developer: $0.kind.isDeveloper; case .system: !$0.kind.isDeveloper; case .all: true }
+            switch filter { case .developer: showsInDeveloperView($0); case .system: !$0.kind.isDeveloper; case .all: true }
         }
 
         let show = NSMenuItem(title: "Show: " + ["Developer", "System & Apps", "All"][filter.rawValue], action: nil, keyEquivalent: "")
@@ -147,20 +184,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             text.append(NSAttributedString(string: "  LAN", attributes: [
                 .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemOrange]))
         }
+        if l.stopped {
+            text.append(NSAttributedString(string: "  STOPPED", attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemYellow]))
+        }
         item.attributedTitle = text
         item.toolTip = tilde(l.command)
 
         let sub = NSMenu()
         sub.addItem(infoItem("PID \(l.pid)", symbol: "number"))
-        sub.addItem(infoItem(l.exposed ? "Reachable from your network (0.0.0.0)" : "Local only (127.0.0.1)",
+        let bound = l.addresses.joined(separator: ", ")      // this process's own binds, not the port's union
+        sub.addItem(infoItem(l.exposed ? "Reachable from your network (\(bound))" : "Local only (\(bound))",
                              symbol: l.exposed ? "wifi.exclamationmark" : "lock"))
+        if let why = KnownPorts.explanation(l) {
+            for line in wrap(why, 60) { sub.addItem(infoItem(line, symbol: line == wrap(why, 60).first ? "info.circle" : nil)) }
+        }
+        if l.stopped {
+            sub.addItem(infoItem("Stopped (suspended) — holds the port but answers nothing", symbol: "pause.circle"))
+        }
         if !l.cwd.isEmpty && l.cwd != "/" { sub.addItem(infoItem(tilde(l.cwd), symbol: "folder")) }
         let cmd = tilde(l.command)
         sub.addItem(infoItem(cmd.count > 90 ? String(cmd.prefix(89)) + "…" : cmd, symbol: "terminal"))
         sub.addItem(.separator())
-        sub.addItem(ActionItem("Open in Browser", symbol: "safari", key: "") {
-            NSWorkspace.shared.open(URL(string: "http://localhost:\(l.port)")!)
-        })
+        if let link = KnownPorts.settingsAction(l) {           // the fix that frees the port: listed first
+            sub.addItem(ActionItem(link.title, symbol: "gearshape", key: "") { NSWorkspace.shared.open(link.url) })
+        }
+        if let scheme = l.web, let url = browserURL(l, scheme) {
+            sub.addItem(ActionItem("Open in Browser", symbol: "safari", key: "") { NSWorkspace.shared.open(url) })
+        }
         if !l.cwd.isEmpty && l.cwd != "/" {
             sub.addItem(ActionItem("Show Folder in Finder", symbol: "folder", key: "") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: l.cwd)])
@@ -173,10 +224,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sub.addItem(.separator())
         if let c = l.container {
             sub.addItem(ActionItem("Stop Container “\(c)”", symbol: "stop.circle", key: "") { [weak self] in self?.stopContainer(c, port: l.port) })
+        } else if KnownPorts.restartsAutomatically(l) {
+            sub.addItem(infoItem("macOS restarts this immediately — stopping it won't free the port", symbol: "arrow.clockwise"))
         } else if l.uid != getuid() {
             sub.addItem(infoItem("Owned by the system — can't stop", symbol: "lock.shield"))
         } else {
-            sub.addItem(ActionItem("Kill Process", symbol: "xmark.octagon", key: "") { [weak self] in self?.confirmKill(l) })
+            sub.addItem(ActionItem(l.kind == .database ? "Shut Down…" : "Kill Process", symbol: "xmark.octagon", key: "") { [weak self] in self?.confirmKill(l) })
         }
         item.submenu = sub
         return item
@@ -184,76 +237,180 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Actions
 
-    func confirmKill(_ l: Listener) {
-        var detail = "Port \(l.port) · PID \(l.pid)\n\(tilde(l.command))"
-        if l.kind == .system { detail += "\n\nThis is an app or system process. Stopping it may close an app." }
-        if l.kind == .docker { detail += "\n\nThis is the Docker engine. Stopping it stops ALL containers." }
-        guard confirm("Stop \(l.label)?", detail, button: "Kill") else { return }
-        signal(pid: l.pid, start: l.start)
-    }
-
-    func signal(pid: pid_t, start: UInt64) {
+    /// Run `work` off the main thread, then hand a fresh scan (with container labels) back to the UI.
+    func afterWork(_ work: @escaping () -> Void, then done: @escaping ([Listener]) -> Void) {
         scanQueue.async {
-            let err = safeTerminate(pid: pid, start: start)
+            work()
+            let fresh = self.web.apply(scanWithContainers(), probe: false)
             RunLoop.main.perform(inModes: [.common]) {
                 MainActor.assumeIsolated {
-                    if let err { self.alert("Couldn't stop PID \(pid)", err.description) }
-                    self.refresh(withDocker: false)
+                    if fresh != self.listeners { self.listeners = fresh; self.render() }
+                    done(fresh)
                 }
+            }
+        }
+    }
+
+    /// Claim the stop flow for `key`. If one is already running, bring its alert forward instead.
+    func beginStop(_ key: String) -> Bool {
+        if stops.claim(key) { return true }
+        if let w = stopAlerts[key] { NSApp.activate(); w.makeKeyAndOrderFront(nil) } else { NSSound.beep() }
+        return false
+    }
+
+    func endStop(_ key: String) {
+        stops.release(key)
+        stopAlerts[key] = nil
+    }
+
+    /// Close any other alert still open for this process (e.g. after Force Quit).
+    func closeStopAlert(_ key: String) {
+        guard let w = stopAlerts.removeValue(forKey: key) else { return }
+        if NSApp.modalWindow == w { NSApp.abortModal() }
+        w.orderOut(nil)
+    }
+
+    func confirmKill(_ l: Listener) {
+        let key = StopRegistry.key(pid: l.pid, start: l.start)
+        guard beginStop(key) else { return }
+        let policy = StopPolicy(l)
+        var detail = "Port \(l.port) · PID \(l.pid)\n\(tilde(l.command))"
+        if let warning = policy.warning { detail += "\n\n⚠️ " + warning }
+        if l.kind == .system { detail += "\n\nThis is an app or system process. Stopping it may close an app." }
+        if l.kind == .docker { detail += "\n\nThis is the container engine. Stopping it stops ALL containers." }
+        guard confirm("Stop \(l.label)?", detail, button: policy == .dataStore ? "Shut Down" : "Kill", key: key) else {
+            return endStop(key)
+        }
+        stop(pid: l.pid, start: l.start, policy: policy, ports: [l.port], name: l.label)
+    }
+
+    /// Stop ladder, then rescan and report each port. Data stores are never force-killed here:
+    /// if one is still running, Force is offered as its own explicit step. Caller holds the stop claim.
+    func stop(pid: pid_t, start: UInt64, policy: StopPolicy, ports: [Int], name: String) {
+        let key = StopRegistry.key(pid: pid, start: start)
+        var err: KillError?
+        afterWork({ err = safeTerminate(pid: pid, start: start, policy: policy) }) { fresh in
+            if let err { self.alert("Couldn't stop PID \(pid)", err.description, key: key); return self.endStop(key) }
+            let report = ports.map { portReport($0, owners: owners(ofPort: $0, in: fresh)) }.joined(separator: "\n")
+            let survived = fresh.contains { $0.pid == pid && $0.start == start }
+            guard survived && !policy.autoForce else { self.alert(report, "", key: key); return self.endStop(key) }
+            guard self.confirm("\(name) is still running", report + "\n\nIt didn't shut down within \(Int(policy.grace)) s. "
+                               + "Force Quit kills it immediately (SIGKILL) and may lose unsaved data.",
+                               button: "Force Quit", key: key) else { return self.endStop(key) }
+            var forceErr: KillError?
+            self.afterWork({ forceErr = forceKill(pid: pid, start: start) }) { fresh in
+                self.closeStopAlert(key)
+                if let forceErr { self.alert("Couldn't force quit PID \(pid)", forceErr.description, key: key) }
+                else { self.alert(ports.map { portReport($0, owners: owners(ofPort: $0, in: fresh)) }.joined(separator: "\n"), "", key: key) }
+                self.endStop(key)
             }
         }
     }
 
     func stopContainer(_ name: String, port: Int) {
         guard let docker = dockerPath, isSafeContainerName(name) else { return }
-        guard confirm("Stop container “\(name)”?", "It publishes port \(port).\nStart it again any time with:  docker start \(name)", button: "Stop") else { return }
-        DispatchQueue.global(qos: .userInitiated).async {
-            let res = run(docker, ["stop", "--", name], timeout: 20)
-            RunLoop.main.perform(inModes: [.common]) {
-                MainActor.assumeIsolated {
-                    if !res.ok { self.alert("Couldn't stop \(name)", res.out) }
-                    self.refresh(withDocker: true)
-                }
-            }
+        let key = "container-" + name
+        guard beginStop(key) else { return }
+        guard confirm("Stop container “\(name)”?", "It publishes port \(port).\nStart it again any time with:  docker start \(name)",
+                      button: "Stop", key: key) else { return endStop(key) }
+        var res = (out: "", ok: true)
+        afterWork({ res = run(docker, ["stop", "--", name], timeout: 20) }) { fresh in
+            if !res.ok { self.alert("Couldn't stop \(name)", res.out, key: key) }
+            else { self.alert(portReport(port, owners: owners(ofPort: port, in: fresh)), "", key: key) }
+            self.endStop(key)
         }
     }
 
+    func stop(_ l: Listener) {
+        if let c = l.container { stopContainer(c, port: l.port) }
+        else if KnownPorts.restartsAutomatically(l) { explainRestart(l) }
+        else { confirmKill(l) }
+    }
+
+    /// Kill would be pointless (launchd restarts it at once); offer the setting that frees the port.
+    func explainRestart(_ l: Listener) {
+        let a = NSAlert()
+        a.messageText = "macOS will restart \(appName(l.exe)) immediately"
+        a.informativeText = (KnownPorts.explanation(l).map { $0 + "\n\n" } ?? "")
+            + "Stopping it won't free port \(l.port), so Ports doesn't offer that."
+        let link = KnownPorts.settingsAction(l)
+        if let link { a.addButton(withTitle: link.title) }
+        a.addButton(withTitle: link == nil ? "OK" : "Cancel").keyEquivalent = link == nil ? "\r" : "\u{1b}"
+        if present(a, key: nil) == .alertFirstButtonReturn, let link { NSWorkspace.shared.open(link.url) }
+    }
+
+    /// Always rescans first (the menu cache may be stale); several owners -> the user picks one.
     func killByPort() {
         guard let text = prompt("Kill by Port", "Which port? (e.g. 4321)"),
               let port = Int(text), (1...65535).contains(port) else { return }
-        guard let l = listeners.first(where: { $0.port == port }) else {
-            alert("Nothing is listening on port \(port)", ""); return
+        afterWork({}) { fresh in
+            let found = owners(ofPort: port, in: fresh)
+            switch found.count {
+            case 0: self.alert("Nothing is listening on port \(port)", "")
+            case 1: self.stop(found[0])
+            default: if let l = self.choose(found, port: port) { self.stop(l) }
+            }
         }
-        if let c = l.container { stopContainer(c, port: port) } else { confirmKill(l) }
     }
 
     func killByPID() {
         guard let text = prompt("Kill by PID", "Which process ID?"), let pid = pid_t(text), pid > 0 else { return }
         guard let id = Proc.identity(pid) else { alert("No process with PID \(pid)", ""); return }
         let cmd = Proc.commandLine(pid)
-        guard confirm("Kill PID \(pid)?", tilde(cmd.isEmpty ? Proc.exePath(pid) : cmd), button: "Kill") else { return }
-        signal(pid: pid, start: id.start)     // start time captured *before* the dialog
+        let key = StopRegistry.key(pid: pid, start: id.start)
+        guard beginStop(key) else { return }
+        let mine = listeners.filter { $0.pid == pid && $0.start == id.start }
+        if let auto = mine.first(where: KnownPorts.restartsAutomatically) { endStop(key); return explainRestart(auto) }
+        let policy = StopPolicy.strictest(mine)
+        var detail = tilde(cmd.isEmpty ? Proc.exePath(pid) : cmd)
+        if let warning = policy.warning { detail += "\n\n⚠️ " + warning }
+        guard confirm("Kill PID \(pid)?", detail, button: "Kill", key: key) else { return endStop(key) }
+        // start time captured *before* the dialog
+        stop(pid: pid, start: id.start, policy: policy, ports: mine.map(\.port), name: "PID \(pid)")
     }
 
     // MARK: Dialogs
 
-    func confirm(_ title: String, _ text: String, button: String) -> Bool {
+    /// Run an alert modally; with `key`, register it as that stop flow's open alert while it is up.
+    func present(_ a: NSAlert, key: String?) -> NSApplication.ModalResponse {
         NSApp.activate()
+        if let key { stopAlerts[key] = a.window }
+        defer { if let key, stopAlerts[key] === a.window { stopAlerts[key] = nil } }
+        return a.runModal()
+    }
+
+    func confirm(_ title: String, _ text: String, button: String, key: String? = nil) -> Bool {
         let a = NSAlert()
         a.alertStyle = .warning
         a.messageText = title
         a.informativeText = text
         a.addButton(withTitle: button).hasDestructiveAction = true
         a.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
-        return a.runModal() == .alertFirstButtonReturn
+        return present(a, key: key) == .alertFirstButtonReturn
     }
 
-    func alert(_ title: String, _ text: String) {
+    /// Several processes own one port: list them all and let the user pick.
+    func choose(_ owners: [Listener], port: Int) -> Listener? {
         NSApp.activate()
+        let a = NSAlert()
+        a.messageText = "\(owners.count) processes are listening on port \(port)"
+        a.informativeText = "Choose which one to stop."
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 360, height: 26), pullsDown: false)
+        for l in owners {
+            popup.addItem(withTitle: "\(l.label) — PID \(l.pid) · \(l.addresses.joined(separator: ", "))\(l.container.map { " · container \($0)" } ?? "")")
+        }
+        a.accessoryView = popup
+        a.addButton(withTitle: "Continue")
+        a.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
+        guard a.runModal() == .alertFirstButtonReturn else { return nil }
+        return owners[popup.indexOfSelectedItem]
+    }
+
+    func alert(_ title: String, _ text: String, key: String? = nil) {
         let a = NSAlert()
         a.messageText = title
         a.informativeText = text
-        a.runModal()
+        _ = present(a, key: key)
     }
 
     func prompt(_ title: String, _ text: String) -> String? {
@@ -276,15 +433,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 // `Ports --list` prints the table in Terminal (handy for checking classification).
 if CommandLine.arguments.contains("--list") {
     let t0 = Date()
-    let map = dockerPath != nil ? dockerPorts() : [:]
-    for l in scan(docker: map) {
-        print(":\(l.port)".padding(toLength: 7, withPad: " ", startingAt: 0),
-              "\(l.pid)".padding(toLength: 7, withPad: " ", startingAt: 0),
-              l.kind.title.padding(toLength: 14, withPad: " ", startingAt: 0),
-              (l.exposed ? "LAN " : "    ") + l.label)
-    }
+    for l in scanWithContainers() { print(listRow(l)) }
     let t1 = Date()
-    _ = scan(docker: map)
+    _ = scan(docker: [:])
     print(String(format: "\nscan (no docker): %.0f ms · with docker: %.0f ms", Date().timeIntervalSince(t1) * 1000, t1.timeIntervalSince(t0) * 1000))
     exit(0)
 }
