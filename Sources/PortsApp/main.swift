@@ -152,7 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let sub = NSMenu()
         sub.addItem(infoItem("PID \(l.pid)", symbol: "number"))
-        sub.addItem(infoItem(l.exposed ? "Reachable from your network (0.0.0.0)" : "Local only (127.0.0.1)",
+        sub.addItem(infoItem(l.exposed ? "Reachable from your network (\(l.exposure.address))" : "Local only (\(l.exposure.address))",
                              symbol: l.exposed ? "wifi.exclamationmark" : "lock"))
         if !l.cwd.isEmpty && l.cwd != "/" { sub.addItem(infoItem(tilde(l.cwd), symbol: "folder")) }
         let cmd = tilde(l.command)

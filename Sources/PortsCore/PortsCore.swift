@@ -23,12 +23,63 @@ public enum Kind: Int, CaseIterable {
 }
 public enum Filter: Int { case developer, system, all }
 
+/// Where a listening socket is bound. Anything but loopback can be reached from other machines.
+public enum Exposure: Equatable, Sendable {
+    case loopback
+    case allInterfaces
+    case specific(String)           // one interface address, e.g. "192.168.1.20" or "fe80::1"
+
+    public var isNetworkReachable: Bool { self != .loopback }
+
+    /// Human-readable bind address for the UI.
+    public var address: String {
+        switch self {
+        case .loopback: "127.0.0.1 / ::1"
+        case .allInterfaces: "0.0.0.0 / ::"
+        case .specific(let ip): ip
+        }
+    }
+
+    public init(ipv4 addr: in_addr) {
+        let host = UInt32(bigEndian: addr.s_addr)
+        if host == 0 { self = .allInterfaces }
+        else if host >> 24 == 127 { self = .loopback }
+        else { self = .specific(ntop(AF_INET, addr)) }
+    }
+
+    public init(ipv6 addr: in6_addr) {
+        let b = withUnsafeBytes(of: addr) { Array($0) }
+        if b.allSatisfy({ $0 == 0 }) { self = .allInterfaces; return }
+        if b[0..<15].allSatisfy({ $0 == 0 }) && b[15] == 1 { self = .loopback; return }
+        if b[0..<10].allSatisfy({ $0 == 0 }) && b[10] == 0xff && b[11] == 0xff {   // ::ffff:a.b.c.d
+            var v4 = in_addr()
+            withUnsafeMutableBytes(of: &v4) { $0.copyBytes(from: b[12..<16]) }
+            self.init(ipv4: v4); return
+        }
+        self = .specific(ntop(AF_INET6, addr))
+    }
+
+    /// One process can bind a port on several addresses; report the widest.
+    public func widest(_ other: Exposure) -> Exposure {
+        func rank(_ e: Exposure) -> Int { switch e { case .loopback: 0; case .specific: 1; case .allInterfaces: 2 } }
+        return rank(other) > rank(self) ? other : self
+    }
+}
+
+func ntop<T>(_ family: Int32, _ addr: T) -> String {
+    var a = addr
+    var buf = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+    guard inet_ntop(family, &a, &buf, socklen_t(buf.count)) != nil else { return "?" }
+    return String(cString: buf)
+}
+
 public struct Listener: Equatable {
     public let port: Int
     public let pid: pid_t
     public let start: UInt64        // process start time (µs) — identity check against PID reuse
     public let uid: uid_t
-    public var exposed: Bool        // listening on all interfaces (reachable from your network)
+    public var exposure: Exposure
+    public var exposed: Bool { exposure.isNetworkReachable }   // reachable from your network
     public let exe: String          // real executable path from the kernel
     public let command: String      // argv joined (display + tool detection only)
     public let cwd: String
@@ -37,13 +88,13 @@ public struct Listener: Equatable {
     public var label = ""
 
     public init(port: Int, pid: pid_t, start: UInt64, uid: uid_t, exposed: Bool,
-                exe: String, command: String, cwd: String, container: String? = nil,
+                exposure: Exposure? = nil, exe: String, command: String, cwd: String, container: String? = nil,
                 kind: Kind = .system, label: String = "") {
         self.port = port
         self.pid = pid
         self.start = start
         self.uid = uid
-        self.exposed = exposed
+        self.exposure = exposure ?? (exposed ? .allInterfaces : .loopback)
         self.exe = exe
         self.command = command
         self.cwd = cwd
@@ -116,8 +167,14 @@ public enum Proc {
         return args.joined(separator: " ")
     }
 
-    /// Listening TCP sockets of one process: (port, exposedToNetwork).
-    public static func listeningPorts(_ pid: pid_t) -> [(port: Int, exposed: Bool)] {
+    public struct BoundPort: Equatable {
+        public let port: Int
+        public let exposure: Exposure
+        public var exposed: Bool { exposure.isNetworkReachable }
+    }
+
+    /// Listening TCP sockets of one process, with the address each is bound to.
+    public static func listeningPorts(_ pid: pid_t) -> [BoundPort] {
         let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
         guard bytes > 0 else { return [] }
         let stride = MemoryLayout<proc_fdinfo>.stride
@@ -125,7 +182,7 @@ public enum Proc {
         let got = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, Int32(fds.count * stride))
         guard got > 0 else { return [] }
 
-        var result: [(Int, Bool)] = []
+        var result: [BoundPort] = []
         for fd in fds.prefix(Int(got) / stride) where fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
             var si = socket_fdinfo()
             let siSize = Int32(MemoryLayout<socket_fdinfo>.size)
@@ -135,14 +192,10 @@ public enum Proc {
             guard tcp.tcpsi_state == TSI_S_LISTEN else { continue }
             let ini = tcp.tcpsi_ini
             let port = Int(UInt16(bigEndian: UInt16(truncatingIfNeeded: ini.insi_lport)))
-            let exposed: Bool
-            if ini.insi_vflag & UInt8(INI_IPV4) != 0 {
-                exposed = ini.insi_laddr.ina_46.i46a_addr4.s_addr == INADDR_ANY
-            } else {
-                var any = in6addr_any, addr = ini.insi_laddr.ina_6
-                exposed = memcmp(&addr, &any, MemoryLayout<in6_addr>.size) == 0
-            }
-            result.append((port, exposed))
+            let exposure = ini.insi_vflag & UInt8(INI_IPV4) != 0
+                ? Exposure(ipv4: ini.insi_laddr.ina_46.i46a_addr4)
+                : Exposure(ipv6: ini.insi_laddr.ina_6)
+            result.append(BoundPort(port: port, exposure: exposure))
         }
         return result
     }
@@ -262,11 +315,11 @@ public func scan(docker: [Int: String]) -> [Listener] {
         let ports = Proc.listeningPorts(pid)
         guard !ports.isEmpty, let id = Proc.identity(pid) else { continue }
         let exe = Proc.exePath(pid), cmd = Proc.commandLine(pid), cwd = Proc.cwd(pid)
-        var byPort: [Int: Bool] = [:]
-        for p in ports { byPort[p.port] = (byPort[p.port] ?? false) || p.exposed }
-        for (port, exposed) in byPort {
-            var l = Listener(port: port, pid: pid, start: id.start, uid: id.uid, exposed: exposed,
-                             exe: exe, command: cmd.isEmpty ? exe : cmd, cwd: cwd, container: docker[port])
+        var byPort: [Int: Exposure] = [:]
+        for p in ports { byPort[p.port] = byPort[p.port].map { $0.widest(p.exposure) } ?? p.exposure }
+        for (port, exposure) in byPort {
+            var l = Listener(port: port, pid: pid, start: id.start, uid: id.uid, exposed: exposure.isNetworkReachable,
+                             exposure: exposure, exe: exe, command: cmd.isEmpty ? exe : cmd, cwd: cwd, container: docker[port])
             let (kind, tool) = classify(l)
             l.kind = kind
             let folder = (cwd.hasPrefix(home + "/")) ? basename(cwd) : ""
