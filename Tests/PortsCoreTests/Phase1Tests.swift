@@ -361,6 +361,18 @@ struct OwnerReportTests {
         #expect(found.count == 2)
         #expect(portReport(s.port, owners: found).hasPrefix("Still listening: "))
     }
+
+    @Test("Each owner shows its OWN bind address, not the port's union")
+    func ownAddresses() throws {
+        let s = try TestListener()
+        let child = try spawn("/usr/bin/nc", ["-6", "-l", "::1", "\(s.port)"])
+        defer { if child.isRunning { child.terminate(); child.waitUntilExit() } }
+        _ = waitFor { Proc.listeningPorts(child.processIdentifier).contains { $0.port == s.port } }
+
+        let found = owners(ofPort: s.port, in: scan(docker: [:]))
+        #expect(found.first { $0.pid == getpid() }?.addresses == ["127.0.0.1"])
+        #expect(found.first { $0.pid == child.processIdentifier }?.addresses == ["::1"])
+    }
 }
 
 // MARK: - 9. System processes on dev ports

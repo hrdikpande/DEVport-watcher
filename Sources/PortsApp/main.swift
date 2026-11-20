@@ -193,7 +193,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let sub = NSMenu()
         sub.addItem(infoItem("PID \(l.pid)", symbol: "number"))
-        sub.addItem(infoItem(l.exposed ? "Reachable from your network (\(l.exposure.address))" : "Local only (\(l.exposure.address))",
+        let bound = l.addresses.joined(separator: ", ")      // this process's own binds, not the port's union
+        sub.addItem(infoItem(l.exposed ? "Reachable from your network (\(bound))" : "Local only (\(bound))",
                              symbol: l.exposed ? "wifi.exclamationmark" : "lock"))
         if let why = KnownPorts.explanation(l) {
             for line in wrap(why, 60) { sub.addItem(infoItem(line, symbol: line == wrap(why, 60).first ? "info.circle" : nil)) }
@@ -376,7 +377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         a.informativeText = "Choose which one to stop."
         let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 360, height: 26), pullsDown: false)
         for l in owners {
-            popup.addItem(withTitle: "\(l.label) — PID \(l.pid) · \(l.exposure.address)\(l.container.map { " · container \($0)" } ?? "")")
+            popup.addItem(withTitle: "\(l.label) — PID \(l.pid) · \(l.addresses.joined(separator: ", "))\(l.container.map { " · container \($0)" } ?? "")")
         }
         a.accessoryView = popup
         a.addButton(withTitle: "Continue")

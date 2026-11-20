@@ -78,6 +78,7 @@ public struct Listener: Equatable {
     public let start: UInt64        // process start time (µs) — identity check against PID reuse
     public let uid: uid_t
     public var exposure: Exposure
+    public var addresses: [String]  // this process's own bind addresses on this port, e.g. ["127.0.0.1"], ["::1"]
     public var exposed: Bool { exposure.isNetworkReachable }   // reachable from your network
     public let exe: String          // real executable path from the kernel
     public let command: String      // argv joined (display only)
@@ -97,6 +98,11 @@ public struct Listener: Equatable {
         self.start = start
         self.uid = uid
         self.exposure = exposure ?? (exposed ? .allInterfaces : .loopback)
+        switch self.exposure {
+        case .loopback: addresses = ["127.0.0.1"]
+        case .allInterfaces: addresses = ["0.0.0.0"]
+        case .specific(let ip): addresses = [ip]
+        }
         self.exe = exe
         self.command = command
         self.argv = argv ?? command.split(separator: " ").map(String.init)
@@ -184,6 +190,7 @@ public enum Proc {
     public struct BoundPort: Equatable {
         public let port: Int
         public let exposure: Exposure
+        public let address: String          // the exact bound address, e.g. "127.0.0.1", "::1", "0.0.0.0"
         public var exposed: Bool { exposure.isNetworkReachable }
     }
 
@@ -206,10 +213,10 @@ public enum Proc {
             guard tcp.tcpsi_state == TSI_S_LISTEN else { continue }
             let ini = tcp.tcpsi_ini
             let port = Int(UInt16(bigEndian: UInt16(truncatingIfNeeded: ini.insi_lport)))
-            let exposure = ini.insi_vflag & UInt8(INI_IPV4) != 0
-                ? Exposure(ipv4: ini.insi_laddr.ina_46.i46a_addr4)
-                : Exposure(ipv6: ini.insi_laddr.ina_6)
-            result.append(BoundPort(port: port, exposure: exposure))
+            let v4 = ini.insi_vflag & UInt8(INI_IPV4) != 0
+            let exposure = v4 ? Exposure(ipv4: ini.insi_laddr.ina_46.i46a_addr4) : Exposure(ipv6: ini.insi_laddr.ina_6)
+            let address = v4 ? ntop(AF_INET, ini.insi_laddr.ina_46.i46a_addr4) : ntop(AF_INET6, ini.insi_laddr.ina_6)
+            result.append(BoundPort(port: port, exposure: exposure, address: address))
         }
         return result
     }
@@ -552,14 +559,18 @@ public func scan(docker: [Int: String]) -> [Listener] {
         guard !ports.isEmpty, let id = Proc.identity(pid) else { continue }
         let exe = Proc.exePath(pid), args = Proc.arguments(pid), cwd = Proc.cwd(pid)
         let cmd = args.joined(separator: " "), stopped = Proc.isStopped(pid)
-        var byPort: [Int: Exposure] = [:]
-        for p in ports { byPort[p.port] = byPort[p.port].map { $0.widest(p.exposure) } ?? p.exposure }
+        var byPort: [Int: Exposure] = [:], addrs: [Int: [String]] = [:]
+        for p in ports {
+            byPort[p.port] = byPort[p.port].map { $0.widest(p.exposure) } ?? p.exposure
+            if !(addrs[p.port] ?? []).contains(p.address) { addrs[p.port, default: []].append(p.address) }
+        }
         for (port, exposure) in byPort {
             var l = Listener(port: port, pid: pid, start: id.start, uid: id.uid, exposed: exposure.isNetworkReachable,
                              exposure: exposure, exe: exe, command: cmd.isEmpty ? exe : cmd,
                              argv: args.isEmpty ? [exe] : args, cwd: cwd,
                              container: containerName(exe: exe, port: port, docker: docker))
             l.stopped = stopped
+            l.addresses = addrs[port] ?? l.addresses
             let (kind, tool) = classify(l)
             l.kind = kind
             let folder = (cwd.hasPrefix(home + "/")) ? basename(cwd) : ""
