@@ -50,13 +50,13 @@ private let classifierFixtures: [ClassifierFixture] = [
     .init(name: "Docker Desktop backend", port: 2375, uid: 501, exe: "/Applications/Docker.app/Contents/Resources/bin/com.docker.backend", command: "com.docker.backend", cwd: "/tmp", container: nil, expectedKind: Kind.docker.rawValue),
     .init(name: "container-mapped port", port: 5432, uid: 501, exe: "/usr/bin/com.docker.backend", command: "com.docker.backend", cwd: "/tmp", container: "database", expectedKind: Kind.docker.rawValue),
 
-    // System & Apps
-    .init(name: "VS Code extension", port: 9001, uid: 501, exe: "/Users/test/.vscode/extensions/oracle.sql-developer-1.0.0/server/node", command: "node extension.js", cwd: "/tmp", container: nil, expectedKind: Kind.system.rawValue),
-    .init(name: "application helper", port: 9002, uid: 501, exe: "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper.app/Contents/MacOS/Code Helper", command: "Code Helper", cwd: "/tmp", container: nil, expectedKind: Kind.system.rawValue),
+    // Apps and System (Phase 3 split "System & Apps": app bundles and editor helpers are Apps; OS daemons stay System)
+    .init(name: "VS Code extension", port: 9001, uid: 501, exe: "/Users/test/.vscode/extensions/oracle.sql-developer-1.0.0/server/node", command: "node extension.js", cwd: "/tmp", container: nil, expectedKind: Kind.app.rawValue),
+    .init(name: "application helper", port: 9002, uid: 501, exe: "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper.app/Contents/MacOS/Code Helper", command: "Code Helper", cwd: "/tmp", container: nil, expectedKind: Kind.app.rawValue),
     .init(name: "usr/libexec daemon", port: 9003, uid: 0, exe: "/usr/libexec/rapportd", command: "rapportd", cwd: "/", container: nil, expectedKind: Kind.system.rawValue),
     .init(name: "ControlCenter on 5000", port: 5000, uid: 0, exe: "/System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter", command: "ControlCenter", cwd: "/", container: nil, expectedKind: Kind.system.rawValue),
-    .init(name: "Electron app", port: 9004, uid: 501, exe: "/Applications/Electron.app/Contents/MacOS/Electron", command: "Electron", cwd: "/tmp", container: nil, expectedKind: Kind.system.rawValue),
-    .init(name: "Gemini extension", port: 9005, uid: 501, exe: "/Users/test/.gemini/helper", command: "helper", cwd: "/tmp", container: nil, expectedKind: Kind.system.rawValue)
+    .init(name: "Electron app", port: 9004, uid: 501, exe: "/Applications/Electron.app/Contents/MacOS/Electron", command: "Electron", cwd: "/tmp", container: nil, expectedKind: Kind.app.rawValue),
+    .init(name: "Gemini extension", port: 9005, uid: 501, exe: "/Users/test/.gemini/helper", command: "helper", cwd: "/tmp", container: nil, expectedKind: Kind.app.rawValue)
 ]
 
 private func listener(from fixture: ClassifierFixture) -> Listener {
