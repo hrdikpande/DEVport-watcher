@@ -39,3 +39,23 @@ All notable changes to this project will be documented here.
   when the server speaks TLS.
 - Added `Scripts/dev_harness.sh`, which starts throwaway listeners for each of
   these scenarios.
+- Detect RabbitMQ and CouchDB on the Erlang VM (`-s rabbit`, `-boot`,
+  `-progname`), and Neo4j and other JVM stores even when `--add-opens` comes
+  before the main class.
+- `ports list` marks suspended processes `STOPPED`, like the menu.
+- The web probe runs only while the menu is open, only on loopback, within
+  0.8 s per listener, and never on Databases.
+- Fixed (since Phase 0): on case-insensitive APFS the CLI overwrote the app
+  binary, so the bundle contained only the CLI. The CLI now lives in
+  `Contents/Helpers/ports`, and `build_app.sh` fails if the two binaries are
+  missing or identical, or if the app doesn't link AppKit.
+- `dev_harness.sh` refuses to start if its ports are taken, and always kills its
+  own children on exit, including a suspended or TERM-ignoring one.
+- Only one stop flow runs per process. A repeated request brings the open alert
+  forward instead of starting a second ladder.
+- Row detail and the Kill by Port chooser show each process's own bind
+  addresses.
+- The AirPlay Receiver tip names the pane for your macOS version ("AirDrop &
+  Continuity" or "AirDrop & Handoff") and adds Open AirPlay Settings. System
+  owners that launchd restarts (ControlCenter, rapportd, …) are not offered
+  Kill.

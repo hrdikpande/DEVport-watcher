@@ -40,9 +40,15 @@ New Phase 1 tests live in `Tests/PortsCoreTests/Phase1Tests.swift`.
 
 ## Found during Phase 1, for later
 
-- The spec file `IMPLEMENTATION_PROMPT.md` is not in the repository.
-  `Scripts/dev_harness.sh` was built from the Phase 1 item list alone. Check it
-  against the full item 11 text.
+- `docs/IMPLEMENTATION_PROMPT.md` was still not in the working tree at the
+  Phase 1 follow-up, so it has not been committed. `Scripts/dev_harness.sh` was
+  built from the Phase 1 item list alone. Check it against the full item 11
+  text.
+- The AirPlay pane is assumed renamed to "AirDrop & Continuity" from macOS 15.
+  It is verified on macOS 26 only; confirm the cut-over version on 14 and 15.
+- `KnownPorts.restartedByLaunchd` is a hand-kept list. Reading the process's
+  launchd job (KeepAlive) would be exact; that belongs to the supervisor-aware
+  phase.
 - The menu bar badge still counts developer kinds only. System processes now
   shown in the Developer view (KnownPorts) are not counted.
 - The background poll (every 10 s) reuses the last container map, applied only
