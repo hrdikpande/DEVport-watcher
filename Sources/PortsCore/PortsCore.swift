@@ -15,13 +15,13 @@ import Darwin
 
 // MARK: - Model
 
-public enum Kind: Int, CaseIterable {
+public enum Kind: Int, CaseIterable, Sendable {
     case frontend, backend, database, docker, system
     public var title: String { ["Frontend", "Backend", "Databases", "Docker", "System & Apps"][rawValue] }
     public var symbol: String { ["macwindow", "server.rack", "cylinder.split.1x2", "shippingbox", "gearshape"][rawValue] }
     public var isDeveloper: Bool { self != .system }
 }
-public enum Filter: Int { case developer, system, all }
+public enum Filter: Int, Sendable { case developer, system, all }
 
 /// Where a listening socket is bound. Anything but loopback can be reached from other machines.
 public enum Exposure: Equatable, Sendable {
@@ -561,7 +561,7 @@ public func scanWithContainers() -> [Listener] {
 
 // MARK: - Safe kill
 
-public enum KillError: Error, Equatable, CustomStringConvertible {
+public enum KillError: Error, Equatable, Sendable, CustomStringConvertible {
     case gone, notYours, protected, failed(String)
     public var description: String {
         switch self {
