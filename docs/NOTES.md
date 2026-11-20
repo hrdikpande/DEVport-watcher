@@ -77,3 +77,22 @@ New Phase 1 tests live in `Tests/PortsCoreTests/Phase1Tests.swift`.
   only to a specific LAN IP gets no "Open in Browser". Connecting to the Mac's
   own interface address would never leave the machine, but it would break the
   loopback-only privacy promise. Decide whether to allow it.
+
+## Found during Phase 2
+
+- macOS (confirmed on 26) withholds other processes' environments from
+  `KERN_PROCARGS2`, even for your own uid (`ps -E` shows none either).
+  `ports list --env` says so instead of printing nothing; the code still masks
+  values on systems that return them.
+- Memory gate: a plain AppKit status-item app shows ~50 MB RSS because RSS
+  counts shared framework pages. Its physical footprint (Activity Monitor's
+  "Memory") is ~15 MB. The < 40 MB gate is measured as physical footprint
+  (`vmmap --summary`), and RSS is recorded too.
+- A Phase 1 build left running for 2 h had grown to a 41 MB footprint. The web
+  probe cache was never pruned. Fixed in Phase 2. Phase 10 should add a soak
+  measurement.
+- Harness scenarios now run from their temp folder, so labels never pick up the
+  repo the harness lives in.
+- `/bin/sh` reports itself as `bash` in the process table, so launcher chains
+  show `bash`.
+

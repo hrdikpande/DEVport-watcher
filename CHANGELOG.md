@@ -8,6 +8,30 @@ All notable changes to this project will be documented here.
 - Added characterization tests and CI.
 - Added initial open-source governance documentation.
 
+### Phase 2 — richer process model
+- Each listener now records its parent PID, process group, controlling
+  terminal and launcher chain (parent → … → launchd). The menu shows
+  "Started by …".
+- Memory, CPU time, uptime ("running 2 d 4 h") and the number of open
+  connections ("Idle" when there are none). CPU % is sampled only while the
+  menu is open.
+- Prefork servers (gunicorn, uvicorn workers, cluster mode) collapse into one
+  row with a worker count (`×3`). Workers count only when they hold the same
+  inherited socket, so IPv4/IPv6 owners stay separate.
+- Project and branch: walks up from the working directory (or the script being
+  run) to the nearest manifest and names the project from it. Monorepos show
+  `repo › package`. The git branch is read from `.git/HEAD` (worktrees and
+  detached HEAD supported); no git process is started. Labels read
+  `tool · project · branch`.
+- Copy Start Command (`cd '<cwd>' && <argv>`, shell-quoted).
+- `ports list --timing` prints the warm scan time; `ports list --env` prints
+  your own processes' environment with secret-looking values masked, when
+  macOS provides it.
+- Static per-process data is cached by PID + start time, so a warm scan only
+  reads what can change.
+- Fixed: the web-probe cache kept entries for exited processes forever.
+- Child processes are now launched only from `Exec.swift`.
+
 ### Phase 1 — correctness and safety
 
 - Show the real bind address. New `Exposure` model (`loopback`, `allInterfaces`,
