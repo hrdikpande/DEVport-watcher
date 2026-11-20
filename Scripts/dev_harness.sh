@@ -49,7 +49,11 @@ if mode == "raw":                       # speaks, but not HTTP
 class Server(http.server.ThreadingHTTPServer):
     address_family = family
     allow_reuse_address = True
-class Quiet(http.server.SimpleHTTPRequestHandler):
+# Fixed reply, no filesystem access: some scenarios listen on the LAN, so never serve files.
+class Quiet(http.server.BaseHTTPRequestHandler):
+    def do_HEAD(self):
+        self.send_response(200); self.send_header("Content-Length", "0"); self.end_headers()
+    do_GET = do_HEAD
     def log_message(self, *a): pass
 srv = Server((host, port), Quiet)
 if mode == "https":
