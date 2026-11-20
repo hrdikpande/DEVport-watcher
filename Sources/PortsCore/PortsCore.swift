@@ -438,7 +438,7 @@ public func classify(_ l: Listener) -> (Kind, String) {
     return (.system, appName(l.exe))
 }
 
-// MARK: - Web probe (menu open only; loopback or the listener's own address; short timeout; read-only)
+// MARK: - Web probe (menu open only; loopback addresses only; < 1 s per listener; read-only)
 
 public enum WebScheme: String, Sendable { case http, https }
 
@@ -461,7 +461,7 @@ let tlsProbe: [UInt8] = [0x16, 0x03, 0x01, 0x00, 0x33,                  // recor
        0x01, 0x00, 0x00, 0x00]                                          // null compression; no extensions
 
 /// Send `payload`, return the first bytes of the reply ([] if none), or nil if we couldn't connect.
-func exchange(host: String, port: Int, payload: [UInt8], timeout: TimeInterval) -> [UInt8]? {
+func exchange(host: String, port: Int, payload: [UInt8], deadline: Date) -> [UInt8]? {
     var hints = addrinfo()
     hints.ai_flags = AI_NUMERICHOST
     hints.ai_socktype = SOCK_STREAM
@@ -474,35 +474,39 @@ func exchange(host: String, port: Int, payload: [UInt8], timeout: TimeInterval) 
     var one: Int32 = 1
     setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
     _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
-    let ms = Int32(timeout * 1000)
+    func ms() -> Int32 { Int32(max(0, deadline.timeIntervalSinceNow) * 1000) }
     if connect(fd, ai.pointee.ai_addr, ai.pointee.ai_addrlen) != 0 {
         guard errno == EINPROGRESS else { return nil }
         var p = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
         var err: Int32 = 0, len = socklen_t(MemoryLayout<Int32>.size)
-        guard poll(&p, 1, ms) == 1, getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) == 0, err == 0 else { return nil }
+        guard poll(&p, 1, ms()) == 1, getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) == 0, err == 0 else { return nil }
     }
     guard payload.withUnsafeBytes({ send(fd, $0.baseAddress, payload.count, 0) }) == payload.count else { return [] }
     var p = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-    guard poll(&p, 1, ms) == 1 else { return [] }
+    guard poll(&p, 1, ms()) == 1 else { return [] }
     var buf = [UInt8](repeating: 0, count: 512)
     let n = recv(fd, &buf, buf.count, 0)
     return n > 0 ? Array(buf.prefix(n)) : []
 }
 
-/// Worth probing: dev servers and published container ports (never databases, system or suspended processes).
+/// Worth probing: dev servers and published container ports that answer on loopback.
+/// Never Databases-kind, system or suspended processes, and never a non-loopback address.
 public func isWebCandidate(_ l: Listener) -> Bool {
-    !l.stopped && (l.container != nil || l.kind == .frontend || l.kind == .backend)
+    if case .specific = l.exposure { return false }       // bound to a LAN address only: not reachable on loopback
+    return !l.stopped && l.kind != .database && (l.container != nil || l.kind == .frontend || l.kind == .backend)
 }
 
-/// Plain HTTP first; if the server says nothing, try a TLS hello.
-public func probeWeb(_ l: Listener, timeout: TimeInterval = 0.3) -> WebScheme? {
-    let hosts: [String]
-    if case .specific(let ip) = l.exposure { hosts = [ip] } else { hosts = ["127.0.0.1", "::1"] }
-    for host in hosts {
-        guard let reply = exchange(host: host, port: l.port, payload: httpProbe, timeout: timeout) else { continue }
+public let webProbeBudget: TimeInterval = 0.8             // whole probe of one listener, all attempts included
+
+/// Plain HTTP first; if the server says nothing, try a TLS hello. Loopback only, within `webProbeBudget`.
+public func probeWeb(_ l: Listener) -> WebScheme? {
+    guard isWebCandidate(l) else { return nil }
+    let deadline = Date().addingTimeInterval(webProbeBudget)
+    for host in ["127.0.0.1", "::1"] {
+        guard let reply = exchange(host: host, port: l.port, payload: httpProbe, deadline: deadline) else { continue }
         if let scheme = webScheme(fromReply: reply) { return scheme }
         guard reply.isEmpty else { return nil }                 // spoke, but not HTTP or TLS
-        let tls = exchange(host: host, port: l.port, payload: tlsProbe, timeout: timeout) ?? []
+        let tls = exchange(host: host, port: l.port, payload: tlsProbe, deadline: deadline) ?? []
         return webScheme(fromReply: tls) == .https ? .https : nil
     }
     return nil

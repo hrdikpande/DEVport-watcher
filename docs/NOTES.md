@@ -65,3 +65,7 @@ New Phase 1 tests live in `Tests/PortsCoreTests/Phase1Tests.swift`.
   Screenshots shared publicly may want a way to hide it.
 - `swift run` inside the harness takes about 10 s per launch. A prebuilt
   binary would be faster, but it can go stale (that happened during Phase 1).
+- The web probe never connects to a non-loopback address, so a server bound
+  only to a specific LAN IP gets no "Open in Browser". Connecting to the Mac's
+  own interface address would never leave the machine, but it would break the
+  loopback-only privacy promise. Decide whether to allow it.

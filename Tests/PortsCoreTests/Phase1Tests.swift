@@ -412,6 +412,26 @@ struct WebProbeTests {
         return probeWeb(l)
     }
 
+    @Test("A server that never answers costs at most the probe budget, under 1 s")
+    func budget() throws {
+        let server = try TestListener()                   // listens, never accepts or replies
+        let l = Listener(port: server.port, pid: getpid(), start: 1, uid: getuid(), exposed: false,
+                         exe: "/usr/local/bin/node", command: "node server.js", cwd: "/tmp", kind: .backend)
+        let t0 = Date()
+        #expect(probeWeb(l) == nil)
+        #expect(Date().timeIntervalSince(t0) < 1)
+        #expect(webProbeBudget < 1)
+    }
+
+    @Test("Databases-kind listeners are never probed")
+    func neverDatabases() throws {
+        let server = try TestListener()
+        server.serve(Array("HTTP/1.1 200 OK\r\n\r\n".utf8))
+        let l = Listener(port: server.port, pid: getpid(), start: 1, uid: getuid(), exposed: false,
+                         exe: "/opt/homebrew/bin/postgres", command: "postgres", cwd: "/tmp", kind: .database)
+        #expect(probeWeb(l) == nil)
+    }
+
     @Test("Real loopback servers: HTTP, TLS, silent, non-HTTP")
     func servers() throws {
         #expect(try probe(Array("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".utf8)) == .http)
@@ -426,6 +446,8 @@ struct WebProbeTests {
         #expect(isWebCandidate(l))
         #expect(browserURL(l, .https)?.absoluteString == "https://localhost:5173")
         l.exposure = .specific("192.168.1.20")
+        #expect(!isWebCandidate(l))                       // loopback addresses only
+        #expect(probeWeb(l) == nil)
         #expect(browserURL(l, .http)?.absoluteString == "http://192.168.1.20:5173")
         l.exposure = .specific("fe80::1")
         #expect(browserURL(l, .http)?.absoluteString == "http://[fe80::1]:5173")

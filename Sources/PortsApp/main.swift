@@ -96,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !scanning else { return }
         scanning = true
         let cachedDocker = docker
+        let probe = withDocker && menuOpen          // web probes run only while the menu is open
         scanQueue.async {
             // Menu open: query containers in this same scan. Background poll: reuse the last map —
             // scan() only applies it to container-runtime proxies, so a native process never inherits it.
@@ -105,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 map = needsContainerQuery(result) ? dockerPorts() : [:]
                 result = scan(docker: map)
             }
-            result = self.web.apply(result, probe: withDocker)
+            result = self.web.apply(result, probe: probe)
             RunLoop.main.perform(inModes: [.common]) {
                 MainActor.assumeIsolated {
                     self.scanning = false
