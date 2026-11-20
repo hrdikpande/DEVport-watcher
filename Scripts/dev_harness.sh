@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 
 MODE=${1:-}
 BASE=${PORT_BASE:-47100}
-LAST=$((BASE+12))
+LAST=$((BASE+13))
 
 listening() { lsof -nP -iTCP:$BASE-$LAST -sTCP:LISTEN 2>/dev/null | tail -n +2; }
 
@@ -152,6 +152,10 @@ start_in "$WORK/harness-wt" $((BASE+11)) "git worktree: harness-wt · wt-branch"
 start_in "$WORK/harness-mono/apps/api" $((BASE+12)) "monorepo package: harness-mono › api · main" \
   python3 app.py http 127.0.0.1 $((BASE+12))
 
+# Phase 3: the framework table names a dev server by its argv[0] (nc stands in for vite; no files are served).
+start $((BASE+13)) "framework table: Frontend, Vite" \
+  zsh -c "exec -a vite /usr/bin/nc -lk 127.0.0.1 $((BASE+13))"
+
 # Wait until every scenario port listens (no fixed sleep), then suspend the Ctrl-Z scenario.
 want=${#${(u)EXPECT_PORTS}}
 up=0
@@ -163,7 +167,8 @@ done
 (( up >= want )) || { echo "dev_harness: only $up of $want scenario ports came up" >&2; cat "$WORK/log" >&2; exit 1; }
 kill -STOP "$STOPPED_PID"
 
-TABLE=$("$PORTS" list | awk -v lo=$BASE -v hi=$LAST '{ p = substr($1, 2) + 0 } p >= lo && p <= hi')
+FULL=$("$PORTS" list)
+TABLE=$(print -r -- "$FULL" | awk -v lo=$BASE -v hi=$LAST '/^:/ { p = substr($1, 2) + 0 } /^:/ && p >= lo && p <= hi')
 
 if [[ "$MODE" == "--check" ]]; then
   errors=0
@@ -192,7 +197,7 @@ if [[ "$MODE" == "--check" ]]; then
   expect $((BASE+3)) "python"
   expect $((BASE+4)) "Backend" "python" "!astro" "!·"
   expect $((BASE+5)) "STOPPED"
-  expect $((BASE+6)) "Databases" "redis-server"
+  expect $((BASE+6)) "Databases" "Redis"
   rows $((BASE+7)) 2
   expect $((BASE+8)) "python"
   expect $((BASE+9)) "python · harness-web · feature/demo"
@@ -200,6 +205,14 @@ if [[ "$MODE" == "--check" ]]; then
   rows $((BASE+10)) 1
   expect $((BASE+11)) "harness-wt · wt-branch"
   expect $((BASE+12)) "harness-mono › api · main"
+  expect $((BASE+13)) "Frontend" "Vite"
+  # Known-port explainer: shown under ControlCenter whenever AirPlay Receiver holds 5000/7000 on this Mac.
+  if print -r -- "$FULL" | grep -qE '^:(5000|7000) .*ControlCenter'; then
+    print -r -- "$FULL" | grep -q '↳ AirPlay Receiver (ControlCenter) uses port' \
+      || { echo "  FAIL AirPlay explainer missing under ControlCenter"; errors=$((errors+1)); }
+  else
+    echo "  (AirPlay Receiver is off on this Mac: explainer check skipped)"
+  fi
 
   cleanup
   for _ in {1..100}; do [[ -z "$(listening)" ]] && break; sleep 0.1; done
