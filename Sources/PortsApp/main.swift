@@ -168,7 +168,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 result = scan(docker: map, containers: snap?.byPort ?? [:], sampleCPU: probe)
             }
             _ = cachedDocker
-            result = applyOverrides(self.web.apply(result, probe: probe), self.overrides)
+            // Web probes first (a server that answers HTTP is not a database), then read-only DB handshakes:
+            // both only while the menu is open, loopback only.
+            result = applyOverrides(DatabaseProbeCache.shared.apply(self.web.apply(result, probe: probe), probe: probe), self.overrides)
             // Orphans, duplicates and Doctor. launchctl and the leftover sweep run only while the menu is open.
             var input = DoctorInput()
             input.dockerReachable = reachable
@@ -297,9 +299,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         text.append(NSAttributedString(string: label, attributes: [.font: NSFont.menuFont(ofSize: 13)]))
         text.append(NSAttributedString(string: "   PID \(l.pid)", attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular), .foregroundColor: NSColor.secondaryLabelColor]))
+        let db = knownDatabase(l)
+        if db != nil {
+            text.append(NSAttributedString(string: "  DB", attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemTeal]))
+        }
         if l.exposed {
-            text.append(NSAttributedString(string: "  LAN", attributes: [
-                .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemOrange]))
+            // A database reachable from the network is red; other network listeners orange.
+            text.append(NSAttributedString(string: db != nil ? "  NETWORK" : "  LAN", attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .bold),
+                .foregroundColor: db != nil ? NSColor.systemRed : NSColor.systemOrange]))
         }
         if let v = analysis.verdict(l), v.level >= .likely {
             text.append(NSAttributedString(string: "  ORPHAN", attributes: [
@@ -337,6 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sub.addItem(infoItem(cmd.count > 90 ? String(cmd.prefix(89)) + "…" : cmd, symbol: "terminal"))
         for line in detailLines(l) { sub.addItem(infoItem(line.text, symbol: line.symbol)) }
         for line in classificationLines(l) { sub.addItem(infoItem(line.text, symbol: line.symbol)) }
+        for item in databaseItems(l) { sub.addItem(item) }
         for line in containerLines(l) { for (i, w) in wrap(line.text, 70).enumerated() { sub.addItem(infoItem(w, symbol: i == 0 ? line.symbol : nil)) } }
         for line in verdictLines(l) { for (i, w) in wrap(line.text, 70).enumerated() { sub.addItem(infoItem(w, symbol: i == 0 ? line.symbol : nil)) } }
         sub.addItem(.separator())
@@ -497,6 +507,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return lines
     }
 
+    func databaseItems(_ l: Listener) -> [NSMenuItem] {
+        guard let (db, source) = knownDatabase(l) else { return [] }
+        var items: [NSMenuItem] = []
+        let how = ["process": "its process", "image": "its container image", "handshake": "a read-only handshake"][source.rawValue]!
+        items.append(infoItem("\(db.title) (recognised by \(how))", symbol: "cylinder.split.1x2"))
+        if l.exposed {
+            items.append(infoItem("Reachable from your network (\(l.addresses.joined(separator: ", "))): bind it to 127.0.0.1",
+                                  symbol: "exclamationmark.octagon"))
+        }
+        if let url = connectionURL(db, l) {
+            let apps = NSWorkspace.shared.urlsForApplications(toOpen: url).map(\.path)
+            let remembered = settingsStore.settings.databaseClients[db.rawValue]
+            let ranked = rankClients(apps, remembered: remembered.flatMap { apps.contains($0) ? $0 : nil })
+            if let first = ranked.first, remembered != nil, ranked.first == remembered {
+                items.append(ActionItem("Open in \(appTitle(first))", symbol: "arrow.up.forward.app", key: "") { [weak self] in
+                    self?.open(url, with: first) })
+            } else if !ranked.isEmpty {
+                items.append(ActionItem("Open in Database Client…", symbol: "arrow.up.forward.app", key: "") { [weak self] in
+                    self?.chooseClient(db, url: url, apps: ranked) })
+            }
+            if ranked.count > 1 || remembered != nil {
+                let with = NSMenuItem(title: "Open With", action: nil, keyEquivalent: "")
+                let m = NSMenu()
+                for app in ranked { m.addItem(ActionItem(appTitle(app), key: "") { [weak self] in self?.open(url, with: app) }) }
+                with.submenu = m
+                items.append(with)
+            }
+            items.append(ActionItem("Copy Connection URL", symbol: "link", key: "") { copyToPasteboard(url.absoluteString) })
+        }
+        if let cmd = cliCommand(db, l) {
+            items.append(ActionItem("Copy “\(cmd)”", symbol: "terminal", key: "") { copyToPasteboard(cmd) })
+        }
+        return items
+    }
+
+    func appTitle(_ path: String) -> String { ((path as NSString).lastPathComponent as NSString).deletingPathExtension }
+
+    func open(_ url: URL, with app: String) {
+        NSWorkspace.shared.open([url], withApplicationAt: URL(fileURLWithPath: app), configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    /// The first time: ask which client opens this database type, remember it (changeable later).
+    func chooseClient(_ db: DatabaseType, url: URL, apps: [String]) {
+        NSApp.activate()
+        let a = NSAlert()
+        a.messageText = "Open \(db.title) with which app?"
+        a.informativeText = "\(url.absoluteString)\nPorts remembers your choice for \(db.title)."
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 280, height: 26), pullsDown: false)
+        for app in apps { popup.addItem(withTitle: appTitle(app)) }
+        a.accessoryView = popup
+        a.addButton(withTitle: "Open")
+        a.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        let app = apps[popup.indexOfSelectedItem]
+        try? settingsStore.update { $0.databaseClients[db.rawValue] = app }
+        open(url, with: app)
+    }
+
     func restartContainer(_ name: String, port: Int) {
         let key = "container-" + name
         guard beginStop(key) else { return }
@@ -621,7 +689,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func afterWork(_ work: @escaping () -> Void, then done: @escaping ([Listener]) -> Void) {
         scanQueue.async {
             work()
-            let fresh = applyOverrides(self.web.apply(scanWithContainers(), probe: false), self.overrides)
+            let fresh = applyOverrides(DatabaseProbeCache.shared.apply(self.web.apply(scanWithContainers(), probe: false), probe: false),
+                                       self.overrides)
             let a = analyze(fresh, starred: self.overrides.starred, includeLeftovers: true)
             RunLoop.main.perform(inModes: [.common]) {
                 MainActor.assumeIsolated {

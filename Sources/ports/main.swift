@@ -25,8 +25,8 @@ if arguments.first == "next-free" {
 if arguments.first == "list" || arguments.first == "--list" { arguments.removeFirst() }
 let flags = Set(arguments)
 
-guard flags.isSubset(of: ["--timing", "--env"]) else {
-    fputs("Usage: ports [list] [--timing] [--env]\n", stderr)
+guard flags.isSubset(of: ["--timing", "--env", "--probe"]) else {
+    fputs("Usage: ports [list] [--timing] [--env] [--probe]\n", stderr)
     exit(64)
 }
 
@@ -34,7 +34,13 @@ func ms(_ since: DispatchTime) -> Double { Double(DispatchTime.now().uptimeNanos
 
 let t0 = DispatchTime.now()
 let store = OverrideStore()
-let listeners = applyOverrides(scanWithContainers(), store)
+// --probe: the same read-only loopback probes the open menu runs (HTTP/TLS first, then database handshakes).
+var scanned = scanWithContainers()
+if flags.contains("--probe") {
+    scanned = scanned.map { var l = $0; l.web = probeWeb($0); return l }
+    scanned = DatabaseProbeCache().apply(scanned, probe: true)
+}
+let listeners = applyOverrides(scanned, store)
 let full = ms(t0)
 let analysis = analyze(listeners, starred: store.starred, includeLeftovers: true)
 
@@ -42,6 +48,7 @@ for l in listeners where l.override?.hidden != true {
     var badges = ""
     if let v = analysis.verdict(l), v.level >= .likely { badges += v.level == .confirmed ? "  ORPHAN" : "  ORPHAN?" }
     if analysis.isDuplicate(l) { badges += "  TWICE" }
+    if let (db, _) = knownDatabase(l) { badges += "  DB:\(db.rawValue)" + (l.exposed ? "  NETWORK" : "") }
     print(listRow(l) + badges)
     if let why = KnownPorts.explanation(l) { print("        ↳ " + why) }
     // Environment of your own processes only; values that look like secrets are masked.

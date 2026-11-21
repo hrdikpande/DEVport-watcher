@@ -97,9 +97,10 @@ public func diagnose(_ ls: [Listener], _ a: Analysis, _ input: DoctorInput) -> [
                             explanation: "\(name) from the same project listens on \(ports). The oldest is PID \(g[0].pid).",
                             fix: .stopOlder(pid: g[0].pid, start: g[0].start)))
     }
-    for l in ls where l.baseKind == .database && l.exposure.isNetworkReachable {
+    for l in ls where l.exposure.isNetworkReachable && l.containerInfo == nil {
+        guard let (db, _) = knownDatabase(l) else { continue }
         issues.append(Issue(id: "dbexposed-\(l.pid)-\(l.port)", severity: .critical,
-                            title: "\(l.framework ?? l.label) on :\(l.port) is reachable from your network",
+                            title: "\(l.framework ?? db.title) on :\(l.port) is reachable from your network",
                             explanation: "It listens on \(l.addresses.joined(separator: ", ")). Bind it to 127.0.0.1 unless other machines need it.",
                             fix: nil))
     }

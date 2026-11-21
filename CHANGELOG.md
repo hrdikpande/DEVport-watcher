@@ -8,6 +8,28 @@ All notable changes to this project will be documented here.
 - Added characterization tests and CI.
 - Added initial open-source governance documentation.
 
+### Phase 7 — databases
+- Databases are recognised by their process, by container image (postgres,
+  redis, mysql/mariadb, mongo, …), or by a read-only handshake on an unknown
+  port. Handshakes:
+  - PostgreSQL SSLRequest, a MySQL greeting read, Redis `PING`, a MongoDB
+    `hello` OP_MSG, Memcached `version`, and the AMQP protocol header.
+  - They run only while the menu is open (or with `ports list --probe`), only
+    on loopback, only on your own listeners above 1023.
+  - 300 ms each, 0.8 s per listener; credentials are never sent.
+  - They never run against a listener already known as a database, and that
+    includes the web probe.
+- DB badge, and a red NETWORK badge for a database reachable from the
+  network, plus a critical Doctor issue.
+- Open in Database Client…: the apps that can open the connection URL
+  (`NSWorkspace.urlsForApplications`). Known clients are listed first. The
+  first choice is remembered per database type, and Open With lists the
+  others.
+- Copy Connection URL (`postgres://127.0.0.1:5432`, never with a user or
+  password) and Copy `psql` / `mysql` / `redis-cli` / `mongosh` command.
+- Safe stop keeps the Phase 1 data-store tier: 15 s grace and a separate Force
+  step. brew-managed databases stop through brew services (Phase 5).
+
 ### Phase 6 — containers
 - Finds every runtime's Engine API socket, in order: `DOCKER_HOST` (unix
   only), the Docker CLI's current context, Docker Desktop, `/var/run`,

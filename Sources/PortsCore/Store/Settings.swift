@@ -5,13 +5,16 @@ import Foundation
 public struct Settings: Codable, Equatable, Sendable {
     /// Stopping a listener on one of these needs the port number typed in (Phase 5).
     public var protectedPorts: [Int] = []
+    /// Database client chosen per database type (Phase 7): DatabaseType.rawValue -> app path.
+    public var databaseClients: [String: String] = [:]
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case protectedPorts }
+    enum CodingKeys: String, CodingKey { case protectedPorts, databaseClients }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         protectedPorts = (try? c.decodeIfPresent([Int].self, forKey: .protectedPorts)) ?? []
+        databaseClients = (try? c.decodeIfPresent([String: String].self, forKey: .databaseClients)) ?? [:]
     }
 
     public func isProtected(_ port: Int) -> Bool { port > 0 && protectedPorts.contains(port) }

@@ -56,6 +56,8 @@ func exchange(host: String, port: Int, payload: [UInt8], deadline: Date) -> [UIn
 /// Never Databases-kind, system or suspended processes, and never a non-loopback address.
 public func isWebCandidate(_ l: Listener) -> Bool {
     if case .specific = l.exposure { return false }       // bound to a LAN address only: not reachable on loopback
+    // Never a database: by process, by container image, or found by a handshake.
+    if knownDatabase(l) != nil { return false }
     return !l.stopped && l.baseKind != .database && (l.container != nil || l.baseKind == .frontend || l.baseKind == .backend)
 }
 

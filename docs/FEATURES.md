@@ -14,7 +14,7 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 - [ ] Configurable refresh / pause [10]
 - [ ] Adaptive scanning: fast when open, slow when closed; sleep, wake and battery aware [10]
 - [x] Known-port hints [3]
-- [ ] DB protocol detection on non-standard ports [7]
+- [x] DB protocol detection on non-standard ports [7]
 
 ## Classification
 - [x] Category groups, without folder-name matching [1, 3]
@@ -79,11 +79,11 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 - [x] 0.0.0.0 publish warning [6]
 
 ## Databases
-- [ ] Detection by process / image / protocol [7]
-- [ ] Open in auto-detected client [7]
-- [ ] Copy connection string / CLI command [7]
-- [ ] Network-exposure warning [7]
-- [ ] Safe stop (brew services for brew DBs) [1, 7]
+- [x] Detection by process / image / protocol [7]
+- [x] Open in auto-detected client [7]
+- [x] Copy connection string / CLI command [7]
+- [x] Network-exposure warning [7]
+- [x] Safe stop (brew services for brew DBs) [1, 7]
 
 ## Tunnels & forwards (display)
 - [ ] SSH -L/-R/-D [8]

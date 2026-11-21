@@ -163,3 +163,14 @@ New Phase 1 tests live in `Tests/PortsCoreTests/Phase1Tests.swift`.
   policy says so". Phase 10's inline confirmation should show the actual
   policy.
 
+## Found during Phase 7
+
+- `ports list --probe` is an explicit, user-invoked form of the open-menu
+  probes. Same rules: loopback, read-only, the same budgets. The menu-closed
+  rule is about the app, which never probes while its menu is closed.
+- A database container is Docker-kind, so the web-probe rule ("never against
+  Databases kind") is enforced with `knownDatabase`: process, image or
+  handshake.
+- Which client opens each scheme is up to macOS (`urlsForApplications`). The
+  Settings window (Phase 10) will show and change the remembered client.
+

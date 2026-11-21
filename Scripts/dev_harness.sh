@@ -28,7 +28,7 @@ if (( WITH_LAUNCHD )) && [[ -n "${CI:-}" ]]; then echo "dev_harness: --with-laun
 LAUNCHD_PREFIX="io.github.hrdikpande.ports.harness."
 LABEL=""
 BASE=${PORT_BASE:-47100}
-LAST=$((BASE + 17))
+LAST=$((BASE + 19))
 
 listening() { lsof -nP -iTCP:$BASE-$LAST -sTCP:LISTEN 2>/dev/null | tail -n +2; }
 
@@ -252,6 +252,20 @@ python3 "$WORK/engine.py" "$ENGINE_SOCK" >>"$WORK/log" 2>&1 &
 PIDS+=$!
 for _ in {1..100}; do [[ -S "$ENGINE_SOCK" ]] && break; sleep 0.1; done
 
+# Phase 7: an unknown server that answers PostgreSQL's SSLRequest with "N" (found only by the read-only
+# handshake, which runs with --probe or while the menu is open), and a fake postgres on all interfaces.
+cat > "$WORK/pgish.py" <<'PY'
+import socket, sys
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", int(sys.argv[1]))); s.listen()
+while True:
+    c, _ = s.accept(); c.recv(64); c.sendall(b"N"); c.close()
+PY
+start $((BASE+18)) "unknown server answering the PostgreSQL handshake: DB:postgres (with --probe)" \
+  python3 "$WORK/pgish.py" $((BASE+18))
+start $((BASE+19)) "postgres on all interfaces: DB:postgres NETWORK" \
+  zsh -c "exec -a postgres /usr/bin/nc -lk 0.0.0.0 $((BASE+19))"
+
 # Wait until every scenario port listens (no fixed sleep), then suspend the Ctrl-Z scenario.
 want=${#${(u)EXPECT_PORTS}}
 up=0
@@ -263,7 +277,7 @@ done
 (( up >= want )) || { echo "dev_harness: only $up of $want scenario ports came up" >&2; cat "$WORK/log" >&2; exit 1; }
 kill -STOP "$STOPPED_PID"
 
-FULL=$(DOCKER_HOST="unix://$ENGINE_SOCK" "$PORTS" list)
+FULL=$(DOCKER_HOST="unix://$ENGINE_SOCK" "$PORTS" list --probe)
 TABLE=$(print -r -- "$FULL" | awk -v lo=$BASE -v hi=$LAST '/^:/ { p = substr($1, 2) + 0 } /^:/ && p >= lo && p <= hi')
 
 if [[ "$MODE" == "--check" ]]; then
@@ -305,7 +319,11 @@ if [[ "$MODE" == "--check" ]]; then
   expect $((BASE+14)) "ORPHAN" "!ORPHAN?" "!TWICE"
   expect $((BASE+9)) "TWICE" "!ORPHAN"
   expect $((BASE+15)) "TWICE" "!ORPHAN"
-  expect $((BASE+17)) "Containers" "harness-db · postgres:16 · harness/db · healthy"
+  expect $((BASE+17)) "Containers" "harness-db · postgres:16 · harness/db · healthy" "DB:postgres"
+  expect $((BASE+18)) "DB:postgres" "!NETWORK"
+  expect $((BASE+19)) "Databases" "DB:postgres" "NETWORK"
+  expect $((BASE+6)) "DB:redis"
+  expect $((BASE+0)) "!DB:"
   if (( WITH_LAUNCHD )); then expect $((BASE+16)) "!ORPHAN"; fi
   # Phase 5: the bind probe agrees with the table, and next-free skips taken ports.
   "$PORTS" preflight $((BASE+0)) >/dev/null && { echo "  FAIL preflight :$((BASE+0)) said free"; errors=$((errors+1)); }

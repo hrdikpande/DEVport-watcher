@@ -100,6 +100,9 @@ check_menu() {
   expect $((BASE+13)) "Vite"
   expect $((BASE+14)) "ORPHAN"
   expect $((BASE+15)) "TWICE"
+  expect $((BASE+6)) "DB"
+  expect $((BASE+18)) "DB"
+  expect $((BASE+19)) "DB" "NETWORK"
   # Phase 4: the Health section and Leftovers appear in the menu.
   for want in "Health ·" "Leftovers ·" "Clean Up Leftovers…" "Copy Setup Prompt for AI"; do
     print -r -- "$items" | grep -qF "$want" || { report+="  menu lacks \"$want\"\n"; errors=$((errors+1)); }

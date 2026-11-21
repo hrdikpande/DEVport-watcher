@@ -28,6 +28,7 @@ public struct Listener: Equatable, Sendable {
     public let cwd: String
     public var container: String? = nil
     public var containerInfo: ContainerInfo? = nil      // Engine API details (Phase 6)
+    public var probedDatabase: DatabaseType? = nil      // read-only handshake result (Phase 7, panel open only)
     public var web: WebScheme? = nil     // set by probeWeb (menu open only); nil = not HTTP-like
     public var stopped = false      // suspended (SIGSTOP / Ctrl-Z): holds the port but serves nothing
     public var kind: Kind = .system
