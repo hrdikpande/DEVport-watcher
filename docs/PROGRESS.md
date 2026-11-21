@@ -7,8 +7,8 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 
 - **Branch:** `release-1`, local only. No pushes, PRs or CI (owner's rules for Phases 5–12). One commit per
   phase, "phase-N: <summary>". Phase 5 also has a first commit that splits PortsCore.swift.
-- **Done:** Phases 2–4 (merged into release-1), 5, 6 and 7.
-- **Next step:** Phase 8 (tunnels & forwards, display only: ssh -L/-R/-D, ngrok API, cloudflared, kubectl, cloud proxies).
+- **Done:** Phases 2–4 (merged into release-1), 5, 6, 7 and 8.
+- **Next step:** Phase 9 (web probe polish: status/time/title, JSON badge, Copy URL/host:port/LAN URL, QR, web search).
 - **Gate runner:** `./Scripts/check.sh`, which runs every gate and marks the LaunchAgent scenario "manual".
 
 ## Owner actions
@@ -37,6 +37,7 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 | 5     | 0 warnings    | 0 warnings  | 125/125 ×5; 30 more runs clean after the probe-budget fix | pass | pass (+ preflight/next-free) | pass | ≤ 4.6 ms | footprint 22.1 MB (RSS 64 MB) | n/a | local only |
 | 6     | 0 warnings    | 0 warnings  | 139/139 ×5 | pass | pass (+ fake engine + proxy: container label) | pass | ≤ 4.4 ms | footprint 22.1 MB (RSS 64 MB) | n/a | local only |
 | 7     | 0 warnings    | 0 warnings  | 152/152 ×5 | pass | pass (+ handshake DB, exposed DB) | pass | ≤ 4.7 ms | footprint 24.2 MB (RSS 67 MB) | n/a | local only |
+| 8     | 0 warnings    | 0 warnings  | 160/160 ×5 | pass | pass (+ ssh -L, kubectl, ngrok public URL) | pass | ≤ 4.9 ms | footprint 23.6 MB (RSS 66 MB) | n/a | local only |
 
 Phase 4 manual gate: **`dev_harness.sh --with-launchd --check` is manual. The owner runs it.** It is not
 "passed" until the owner reports it. Launchd-job exclusion is unit-tested with `launchctl list` fixtures.

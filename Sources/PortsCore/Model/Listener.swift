@@ -29,6 +29,9 @@ public struct Listener: Equatable, Sendable {
     public var container: String? = nil
     public var containerInfo: ContainerInfo? = nil      // Engine API details (Phase 6)
     public var probedDatabase: DatabaseType? = nil      // read-only handshake result (Phase 7, panel open only)
+    public var tunnel: TunnelInfo? = nil                // what this tunnel/forward process does (Phase 8)
+    public var exposedVia: String? = nil                // "ngrok → https://…", "Reachable on bastion :8080 (ssh -R)"
+    public var publicURL: String? = nil
     public var web: WebScheme? = nil     // set by probeWeb (menu open only); nil = not HTTP-like
     public var stopped = false      // suspended (SIGSTOP / Ctrl-Z): holds the port but serves nothing
     public var kind: Kind = .system

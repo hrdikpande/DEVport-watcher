@@ -170,7 +170,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             _ = cachedDocker
             // Web probes first (a server that answers HTTP is not a database), then read-only DB handshakes:
             // both only while the menu is open, loopback only.
-            result = applyOverrides(DatabaseProbeCache.shared.apply(self.web.apply(result, probe: probe), probe: probe), self.overrides)
+            result = DatabaseProbeCache.shared.apply(self.web.apply(result, probe: probe), probe: probe)
+            // Tunnels: from argv always; public URLs from the agents' local APIs only while the menu is open.
+            result = applyOverrides(TunnelProbeCache.shared.apply(result, probe: probe, reverse: reverseForwards(sshArgvs())),
+                                    self.overrides)
             // Orphans, duplicates and Doctor. launchctl and the leftover sweep run only while the menu is open.
             var input = DoctorInput()
             input.dockerReachable = reachable
@@ -318,6 +321,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             text.append(NSAttributedString(string: "  TWICE", attributes: [
                 .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemBlue]))
         }
+        if l.exposedVia != nil || l.tunnel?.publicURL != nil {
+            text.append(NSAttributedString(string: "  PUBLIC", attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemPink]))
+        }
         if !l.workers.isEmpty {
             text.append(NSAttributedString(string: "  ×\(l.workers.count + 1)", attributes: [
                 .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.secondaryLabelColor]))
@@ -347,6 +354,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for line in detailLines(l) { sub.addItem(infoItem(line.text, symbol: line.symbol)) }
         for line in classificationLines(l) { sub.addItem(infoItem(line.text, symbol: line.symbol)) }
         for item in databaseItems(l) { sub.addItem(item) }
+        for item in tunnelItems(l) { sub.addItem(item) }
         for line in containerLines(l) { for (i, w) in wrap(line.text, 70).enumerated() { sub.addItem(infoItem(w, symbol: i == 0 ? line.symbol : nil)) } }
         for line in verdictLines(l) { for (i, w) in wrap(line.text, 70).enumerated() { sub.addItem(infoItem(w, symbol: i == 0 ? line.symbol : nil)) } }
         sub.addItem(.separator())
@@ -542,6 +550,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return items
     }
 
+    func tunnelItems(_ l: Listener) -> [NSMenuItem] {
+        var items: [NSMenuItem] = []
+        if let t = l.tunnel {
+            items.append(infoItem(t.summary, symbol: "arrow.left.arrow.right.circle"))
+            items.append(infoItem("Shown only: Ports doesn't start, change or reconnect tunnels. Stop stops this process.", symbol: "info.circle"))
+        }
+        if let url = l.tunnel?.publicURL ?? l.publicURL {
+            items.append(infoItem("Public: " + url, symbol: "globe"))
+            items.append(ActionItem("Copy Public URL", symbol: "doc.on.doc", key: "") { copyToPasteboard(url) })
+        }
+        if let via = l.exposedVia, l.publicURL == nil { items.append(infoItem(via, symbol: "globe")) }
+        return items
+    }
+
     func appTitle(_ path: String) -> String { ((path as NSString).lastPathComponent as NSString).deletingPathExtension }
 
     func open(_ url: URL, with app: String) {
@@ -689,8 +711,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func afterWork(_ work: @escaping () -> Void, then done: @escaping ([Listener]) -> Void) {
         scanQueue.async {
             work()
-            let fresh = applyOverrides(DatabaseProbeCache.shared.apply(self.web.apply(scanWithContainers(), probe: false), probe: false),
-                                       self.overrides)
+            let fresh = applyOverrides(TunnelProbeCache.shared.apply(
+                DatabaseProbeCache.shared.apply(self.web.apply(scanWithContainers(), probe: false), probe: false),
+                probe: false, reverse: reverseForwards(sshArgvs())), self.overrides)
             let a = analyze(fresh, starred: self.overrides.starred, includeLeftovers: true)
             RunLoop.main.perform(inModes: [.common]) {
                 MainActor.assumeIsolated {

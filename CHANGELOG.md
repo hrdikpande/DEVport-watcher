@@ -8,6 +8,23 @@ All notable changes to this project will be documented here.
 - Added characterization tests and CI.
 - Added initial open-source governance documentation.
 
+### Phase 8 — tunnels and forwards (display only)
+- `ssh -L/-R/-D` are parsed, including the glued (`-L8080:h:80`), bind address
+  and IPv6 forms. Forward rows read "Forward → db:5432 via bastion" or "SOCKS
+  proxy". `ssh -R` marks the local port it exposes ("Reachable on bastion
+  :8080").
+- `kubectl port-forward` rows read "k8s · ns/svc/web 8080→80".
+- gcloud IAP tunnels, AWS SSM port forwarding, cloud-sql-proxy and Tailscale
+  are recognised and described.
+- ngrok: the agent's local API (`/api/tunnels`) gives the public URL, shown on
+  the row of the local port it forwards (PUBLIC badge, Copy Public URL).
+- cloudflared: quick (`tunnel --url …`) and named (`tunnel run <name>`)
+  tunnels. The quick tunnel's hostname comes from cloudflared's metrics
+  server (`/quicktunnel`).
+- Both local APIs are read only while the menu is open (or with
+  `ports list --probe`): loopback only, read-only, 0.8 s.
+- Ports never starts, changes or reconnects a tunnel. Stop stops the process.
+
 ### Phase 7 — databases
 - Databases are recognised by their process, by container image (postgres,
   redis, mysql/mariadb, mongo, …), or by a read-only handshake on an unknown

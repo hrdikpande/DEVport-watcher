@@ -68,7 +68,13 @@ public func unixHTTP(socket path: String, method: String = "GET", path request: 
         var err: Int32 = 0, len = socklen_t(MemoryLayout<Int32>.size)
         guard poll(&p, 1, ms()) == 1, getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) == 0, err == 0 else { return nil }
     }
-    let req = Array("\(method) \(request) HTTP/1.1\r\nHost: docker\r\nUser-Agent: \(Brand.displayName)\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
+    return exchangeHTTP(fd: fd, method: method, path: request, host: "docker", deadline: deadline)
+}
+
+/// Send one request on a connected non-blocking socket and read the response (8 MB cap) before `deadline`.
+func exchangeHTTP(fd: Int32, method: String, path request: String, host: String, deadline: Date) -> HTTPResponse? {
+    func ms() -> Int32 { Int32(max(0, deadline.timeIntervalSinceNow) * 1000) }
+    let req = Array("\(method) \(request) HTTP/1.1\r\nHost: \(host)\r\nUser-Agent: \(Brand.displayName)\r\nAccept: application/json\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
     var sent = 0
     while sent < req.count {
         var p = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
@@ -87,6 +93,34 @@ public func unixHTTP(socket path: String, method: String = "GET", path request: 
         data.append(contentsOf: buf.prefix(n))
     }
     return nil
+}
+
+/// One GET to 127.0.0.1:<port> (loopback only, never another machine); nil on failure or timeout.
+public func loopbackHTTP(port: Int, path request: String, timeout: TimeInterval = 0.8) -> HTTPResponse? {
+    guard (1...65535).contains(port), request.hasPrefix("/"), !request.contains(" "), !request.contains("\r") else { return nil }
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    guard fd >= 0 else { return nil }
+    defer { close(fd) }
+    var one: Int32 = 1
+    setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
+    var a = sockaddr_in()
+    a.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    a.sin_family = sa_family_t(AF_INET)
+    a.sin_port = UInt16(port).bigEndian
+    a.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+    _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+    let deadline = Date().addingTimeInterval(timeout)
+    let r = withUnsafePointer(to: &a) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+    }
+    if r != 0 {
+        guard errno == EINPROGRESS else { return nil }
+        var p = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        var err: Int32 = 0, len = socklen_t(MemoryLayout<Int32>.size)
+        guard poll(&p, 1, Int32(max(0, deadline.timeIntervalSinceNow) * 1000)) == 1,
+              getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) == 0, err == 0 else { return nil }
+    }
+    return exchangeHTTP(fd: fd, method: "GET", path: request, host: "127.0.0.1:\(port)", deadline: deadline)
 }
 
 /// A response whose declared body has fully arrived (Content-Length reached, last chunk seen,

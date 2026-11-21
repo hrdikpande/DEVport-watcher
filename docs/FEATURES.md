@@ -86,11 +86,11 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 - [x] Safe stop (brew services for brew DBs) [1, 7]
 
 ## Tunnels & forwards (display)
-- [ ] SSH -L/-R/-D [8]
-- [ ] ngrok public URL [8]
-- [ ] cloudflared quick/named [8]
-- [ ] kubectl port-forward grouping [8]
-- [ ] gcloud IAP / AWS SSM / cloud-sql-proxy / Tailscale recognised [8]
+- [x] SSH -L/-R/-D [8]
+- [x] ngrok public URL [8]
+- [x] cloudflared quick/named [8]
+- [x] kubectl port-forward grouping [8]
+- [x] gcloud IAP / AWS SSM / cloud-sql-proxy / Tailscale recognised [8]
 
 ## Network
 - [x] Real bind address and exposure [1]

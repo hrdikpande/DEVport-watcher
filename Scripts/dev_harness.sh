@@ -28,7 +28,7 @@ if (( WITH_LAUNCHD )) && [[ -n "${CI:-}" ]]; then echo "dev_harness: --with-laun
 LAUNCHD_PREFIX="io.github.hrdikpande.ports.harness."
 LABEL=""
 BASE=${PORT_BASE:-47100}
-LAST=$((BASE + 19))
+LAST=$((BASE + 22))
 
 listening() { lsof -nP -iTCP:$BASE-$LAST -sTCP:LISTEN 2>/dev/null | tail -n +2; }
 
@@ -231,23 +231,44 @@ while True:
 PY
 # Short path: unix socket names are limited to 104 bytes. The socket file is created by engine.py.
 ENGINE_SOCK="/tmp/ports-harness-$$.sock"
-# A stand-in proxy binary named gvproxy (a copied Apple binary is killed at launch): listens, accepts, sends nothing.
-cat > "$WORK/gvproxy.c" <<'C'
+# A stand-in listener (a copied Apple binary is killed at launch): listens on 127.0.0.1:$HARNESS_PORT, accepts,
+# sends nothing, ignores its arguments, so `exec -a` can give it any argv (ssh, kubectl). Copied as gvproxy.
+cat > "$WORK/listener.c" <<'C'
 #include <arpa/inet.h>
 #include <stdlib.h>
 #include <unistd.h>
-int main(int argc, char **argv) {
+int main(void) {
+  const char *p = getenv("HARNESS_PORT");
   int s = socket(AF_INET, SOCK_STREAM, 0), one = 1;
   setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
-  struct sockaddr_in a = { .sin_family = AF_INET, .sin_port = htons(atoi(argv[1])) };
+  struct sockaddr_in a = { .sin_family = AF_INET, .sin_port = htons(p ? atoi(p) : 0) };
   inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);
-  if (bind(s, (struct sockaddr *)&a, sizeof a) || listen(s, 8)) return 1;
+  if (!p || bind(s, (struct sockaddr *)&a, sizeof a) || listen(s, 8)) return 1;
   for (;;) { int c = accept(s, 0, 0); if (c >= 0) close(c); }
 }
 C
-cc -O -o "$WORK/gvproxy" "$WORK/gvproxy.c"
+cc -O -o "$WORK/listener" "$WORK/listener.c"
+cp "$WORK/listener" "$WORK/gvproxy"
 start $((BASE+17)) "container behind a port proxy: harness-db · postgres:16 · harness/db" \
-  "$WORK/gvproxy" $((BASE+17))
+  env HARNESS_PORT=$((BASE+17)) "$WORK/gvproxy"
+
+# Phase 8: an ssh -L forward and a kubectl port-forward (the stand-in listener with their argv), and an ngrok
+# agent whose local API (a fixed JSON reply) says it forwards :$BASE to a public URL.
+start $((BASE+20)) "ssh -L forward: Tunnels, Forward → db.internal:5432 via bastion.example" \
+  env HARNESS_PORT=$((BASE+20)) zsh -c "exec -a ssh '$WORK/listener' -N -L $((BASE+20)):db.internal:5432 bastion.example"
+start $((BASE+21)) "kubectl port-forward: k8s · svc/web $((BASE+21))→80" \
+  env HARNESS_PORT=$((BASE+21)) zsh -c "exec -a kubectl '$WORK/listener' port-forward -n shop svc/web $((BASE+21)):80"
+cat > "$WORK/ngrok" <<PY
+import json, socket
+body = json.dumps({"tunnels": [{"public_url": "https://harness.ngrok.example", "proto": "https",
+                                "config": {"addr": "http://localhost:$BASE"}}]}).encode()
+reply = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s" % (len(body), body)
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", $((BASE+22)))); s.listen()
+while True:
+    c, _ = s.accept(); c.recv(4096); c.sendall(reply); c.close()
+PY
+start $((BASE+22)) "ngrok agent API: public URL shown on :$BASE (with --probe)" python3 "$WORK/ngrok"
 python3 "$WORK/engine.py" "$ENGINE_SOCK" >>"$WORK/log" 2>&1 &
 PIDS+=$!
 for _ in {1..100}; do [[ -S "$ENGINE_SOCK" ]] && break; sleep 0.1; done
@@ -323,7 +344,10 @@ if [[ "$MODE" == "--check" ]]; then
   expect $((BASE+18)) "DB:postgres" "!NETWORK"
   expect $((BASE+19)) "Databases" "DB:postgres" "NETWORK"
   expect $((BASE+6)) "DB:redis"
-  expect $((BASE+0)) "!DB:"
+  expect $((BASE+0)) "!DB:" "EXPOSED ngrok → https://harness.ngrok.example"
+  expect $((BASE+20)) "Tunnels" "Forward → db.internal:5432 via bastion.example"
+  expect $((BASE+21)) "Tunnels" "k8s · shop/svc/web $((BASE+21))→80"
+  expect $((BASE+22)) "Tunnels" "ngrok agent" "PUBLIC https://harness.ngrok.example"
   if (( WITH_LAUNCHD )); then expect $((BASE+16)) "!ORPHAN"; fi
   # Phase 5: the bind probe agrees with the table, and next-free skips taken ports.
   "$PORTS" preflight $((BASE+0)) >/dev/null && { echo "  FAIL preflight :$((BASE+0)) said free"; errors=$((errors+1)); }

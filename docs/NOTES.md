@@ -174,3 +174,15 @@ New Phase 1 tests live in `Tests/PortsCoreTests/Phase1Tests.swift`.
 - Which client opens each scheme is up to macOS (`urlsForApplications`). The
   Settings window (Phase 10) will show and change the remembered client.
 
+## Found during Phase 8
+
+- cloudflared's metrics server serves `/quicktunnel` (`{"hostname": …}`) for
+  quick tunnels. Its address is whatever port cloudflared listens on (random
+  unless `--metrics` is set). Ports asks the cloudflared row's own listening
+  ports. Named tunnels have no public hostname there; their ingress lives in
+  `config.yml`, which Ports doesn't read.
+- The harness forwarders are a small C listener started with `exec -a
+  ssh|kubectl` and their real-looking argv. No real tunnel is opened.
+- The loopback HTTP client shares its request code with the unix-socket
+  Engine client. It only connects to 127.0.0.1.
+

@@ -40,6 +40,7 @@ if flags.contains("--probe") {
     scanned = scanned.map { var l = $0; l.web = probeWeb($0); return l }
     scanned = DatabaseProbeCache().apply(scanned, probe: true)
 }
+scanned = TunnelProbeCache().apply(scanned, probe: flags.contains("--probe"), reverse: reverseForwards(sshArgvs()))
 let listeners = applyOverrides(scanned, store)
 let full = ms(t0)
 let analysis = analyze(listeners, starred: store.starred, includeLeftovers: true)
@@ -49,6 +50,8 @@ for l in listeners where l.override?.hidden != true {
     if let v = analysis.verdict(l), v.level >= .likely { badges += v.level == .confirmed ? "  ORPHAN" : "  ORPHAN?" }
     if analysis.isDuplicate(l) { badges += "  TWICE" }
     if let (db, _) = knownDatabase(l) { badges += "  DB:\(db.rawValue)" + (l.exposed ? "  NETWORK" : "") }
+    if let url = l.tunnel?.publicURL { badges += "  PUBLIC \(url)" }
+    if let via = l.exposedVia { badges += "  EXPOSED " + via }
     print(listRow(l) + badges)
     if let why = KnownPorts.explanation(l) { print("        ↳ " + why) }
     // Environment of your own processes only; values that look like secrets are masked.
