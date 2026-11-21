@@ -5,9 +5,13 @@ import Foundation
 /// One step of a launcher chain: the parent, its parent, … up to launchd.
 public struct Ancestor: Equatable, Sendable {
     public let pid: pid_t
-    public let name: String
+    public let name: String         // kernel process name (Claude Code reports its version here)
     public let exe: String
-    public init(pid: pid_t, name: String, exe: String) { self.pid = pid; self.name = name; self.exe = exe }
+    public let command: String      // basename of argv[0] when readable (own processes), else `name`
+    public let uid: uid_t?
+    public init(pid: pid_t, name: String, exe: String, command: String? = nil, uid: uid_t? = nil) {
+        self.pid = pid; self.name = name; self.exe = exe; self.command = command ?? name; self.uid = uid
+    }
 }
 
 /// Fields of `proc_bsdinfo` the model uses.
@@ -44,6 +48,28 @@ extension Proc {
         let name = withUnsafeBytes(of: info.kp_proc.p_comm) { String(decoding: $0.prefix(while: { $0 != 0 }), as: UTF8.self) }
         return BSDInfo(ppid: info.kp_eproc.e_ppid, pgid: info.kp_eproc.e_pgid, uid: info.kp_eproc.e_ucred.cr_uid,
                        start: UInt64(t.tv_sec) &* 1_000_000 &+ UInt64(t.tv_usec), name: name)
+    }
+
+    public struct Brief: Equatable, Sendable {
+        public let pid: pid_t
+        public let ppid: pid_t
+        public let tty: Int32?
+        public let name: String
+    }
+
+    /// Every process of `uid` in one sysctl (pid, parent, terminal, name): cheap enough for each scan.
+    public static func all(uid: uid_t) -> [Brief] {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_UID, Int32(bitPattern: uid)]
+        var size = 0
+        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return [] }
+        let stride = MemoryLayout<kinfo_proc>.stride
+        var procs = [kinfo_proc](repeating: kinfo_proc(), count: size / stride + 16)
+        size = procs.count * stride
+        guard sysctl(&mib, 4, &procs, &size, nil, 0) == 0 else { return [] }
+        return procs.prefix(size / stride).map { p in
+            let name = withUnsafeBytes(of: p.kp_proc.p_comm) { String(decoding: $0.prefix(while: { $0 != 0 }), as: UTF8.self) }
+            return Brief(pid: p.kp_proc.p_pid, ppid: p.kp_eproc.e_ppid, tty: ttyDevice(p.kp_eproc.e_tdev), name: name)
+        }
     }
 
     /// Suspended state and controlling terminal, from one `kinfo_proc` read.
@@ -206,7 +232,9 @@ public final class ProcessCache: @unchecked Sendable {
         seen.insert(k)
         if let a = ancestors[k] { lock.unlock(); return a }
         lock.unlock()
-        let a = Ancestor(pid: pid, name: bi.name, exe: Proc.exePath(pid))
+        let argv0 = Proc.arguments(pid).first.map { basename($0) }
+        let a = Ancestor(pid: pid, name: bi.name, exe: Proc.exePath(pid), command: argv0.flatMap { $0.isEmpty ? nil : $0 },
+                         uid: bi.uid)
         lock.lock(); ancestors[k] = a; lock.unlock()
         return a
     }

@@ -254,10 +254,13 @@ public func isSafeContainerName(_ s: String) -> Bool {
 }
 
 /// host port -> container name
-public func dockerPorts() -> [Int: String] {
-    guard let docker = dockerPath else { return [:] }
+public func dockerPorts() -> [Int: String] { dockerQuery() ?? [:] }
+
+/// nil when the runtime didn't answer (so Doctor can say so), else host port -> container name.
+public func dockerQuery() -> [Int: String]? {
+    guard let docker = dockerPath else { return nil }
     let res = run(docker, ["ps", "--format", "{{.Names}}\t{{.Ports}}"])
-    return res.ok ? parseDockerPorts(res.out) : [:]
+    return res.ok ? parseDockerPorts(res.out) : nil
 }
 
 func parseDockerPorts(_ out: String) -> [Int: String] {

@@ -13,11 +13,16 @@ guard flags.isSubset(of: ["--timing", "--env"]) else {
 func ms(_ since: DispatchTime) -> Double { Double(DispatchTime.now().uptimeNanoseconds - since.uptimeNanoseconds) / 1e6 }
 
 let t0 = DispatchTime.now()
-let listeners = applyOverrides(scanWithContainers(), OverrideStore())
+let store = OverrideStore()
+let listeners = applyOverrides(scanWithContainers(), store)
 let full = ms(t0)
+let analysis = analyze(listeners, starred: store.starred, includeLeftovers: true)
 
 for l in listeners where l.override?.hidden != true {
-    print(listRow(l))
+    var badges = ""
+    if let v = analysis.verdict(l), v.level >= .likely { badges += v.level == .confirmed ? "  ORPHAN" : "  ORPHAN?" }
+    if analysis.isDuplicate(l) { badges += "  TWICE" }
+    print(listRow(l) + badges)
     if let why = KnownPorts.explanation(l) { print("        ↳ " + why) }
     // Environment of your own processes only; values that look like secrets are masked.
     if flags.contains("--env"), l.uid == getuid() {
@@ -25,6 +30,11 @@ for l in listeners where l.override?.hidden != true {
         if env.isEmpty { print("        (environment not available: macOS withholds it for this process)") }
         for line in env { print("        " + line) }
     }
+}
+
+if !analysis.leftovers.isEmpty {
+    print("\nLeftovers (orphans without a port):")
+    for left in analysis.leftovers { print("  PID \(left.process.pid)  \(left.tool)  ORPHAN") }
 }
 
 if flags.contains("--timing") {

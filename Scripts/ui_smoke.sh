@@ -99,6 +99,12 @@ expect $((BASE+6)) "Redis"
 expect $((BASE+9)) "harness-web" "feature/demo"
 expect $((BASE+10)) "×3"
 expect $((BASE+13)) "Vite"
+expect $((BASE+14)) "ORPHAN"
+expect $((BASE+15)) "TWICE"
+# Phase 4: the Health section and Leftovers appear in the menu.
+for want in "Health ·" "Leftovers ·" "Clean Up Leftovers…" "Copy Setup Prompt for AI"; do
+  print -r -- "$items" | grep -qF "$want" || { echo "  menu lacks \"$want\""; errors=$((errors+1)); }
+done
 
 if (( errors > 0 )); then
   echo "Menu as read:"; print -r -- "$items"

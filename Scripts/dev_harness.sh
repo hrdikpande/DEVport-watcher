@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 
 MODE=${1:-}
 BASE=${PORT_BASE:-47100}
-LAST=$((BASE+13))
+LAST=$((BASE+15))
 
 listening() { lsof -nP -iTCP:$BASE-$LAST -sTCP:LISTEN 2>/dev/null | tail -n +2; }
 
@@ -37,6 +37,8 @@ typeset -a PIDS
 # is gone. "No such process" is expected and ignored.
 cleanup() {
   set +e
+  # Orphans this harness created on purpose: their PIDs were written when they started.
+  for f in "$WORK"/*.pid(N); do PIDS+=$(<"$f"); done
   for p in $PIDS; do kill -CONT $p 2>/dev/null; kill -KILL $p 2>/dev/null; done
   for p in $PIDS; do wait $p 2>/dev/null; done
   PIDS=()
@@ -156,6 +158,23 @@ start_in "$WORK/harness-mono/apps/api" $((BASE+12)) "monorepo package: harness-m
 start $((BASE+13)) "framework table: Frontend, Vite" \
   zsh -c "exec -a vite /usr/bin/nc -lk 127.0.0.1 $((BASE+13))"
 
+# Phase 4: a confirmed orphan (the subshell that launched it exits; it has no terminal), a second
+# instance of harness-web (duplicate), and an orphaned `tsc -w` watcher without a port (Leftovers).
+# Their PIDs go to *.pid files so cleanup still reaches them after they are reparented.
+orphan() {  # orphan <name> <argv…>: new session (no terminal) + exec, from a subshell that exits at once
+  local name=$1; shift
+  zsh -c 'python3 -c "import os, sys; os.setsid(); os.execv(sys.argv[1], sys.argv[2:])" "$@" >/dev/null 2>&1 & echo $! > "'"$WORK/$name.pid"'"' orphan "$@"
+}
+orphan orphan "$(command -v python3)" python3 "$WORK/serve.py" http 127.0.0.1 $((BASE+14))
+EXPECT_PORTS+=$((BASE+14))
+say "$(printf '  :%-6s %s' $((BASE+14)) "orphan (parent exited, no terminal): ORPHAN")"
+start_in "$WORK/harness-web" $((BASE+15)) "second harness-web instance: TWICE here and on :$((BASE+9))" \
+  python3 app.py http 127.0.0.1 $((BASE+15))
+# A script named tsc, run like `node node_modules/.bin/tsc -w` (the tool is named by its script).
+print 'import time\ntime.sleep(600)' > "$WORK/tsc"
+orphan tsc "$(command -v python3)" python3 "$WORK/tsc" -w
+say "  (no port) orphaned tsc -w: listed under Leftovers"
+
 # Wait until every scenario port listens (no fixed sleep), then suspend the Ctrl-Z scenario.
 want=${#${(u)EXPECT_PORTS}}
 up=0
@@ -206,6 +225,13 @@ if [[ "$MODE" == "--check" ]]; then
   expect $((BASE+11)) "harness-wt · wt-branch"
   expect $((BASE+12)) "harness-mono › api · main"
   expect $((BASE+13)) "Frontend" "Vite"
+  expect $((BASE+14)) "ORPHAN" "!ORPHAN?" "!TWICE"
+  expect $((BASE+9)) "TWICE" "!ORPHAN"
+  expect $((BASE+15)) "TWICE" "!ORPHAN"
+  for b in 0 1 3 4 6 8 10 11 12 13; do expect $((BASE+b)) "!ORPHAN"; done
+  tsc_pid=$(<"$WORK/tsc.pid")
+  print -r -- "$FULL" | grep -qE "^  PID $tsc_pid  tsc  ORPHAN" \
+    || { echo "  FAIL orphaned tsc (PID $tsc_pid) missing from Leftovers"; errors=$((errors+1)); }
   # Known-port explainer: shown under ControlCenter whenever AirPlay Receiver holds 5000/7000 on this Mac.
   if print -r -- "$FULL" | grep -qE '^:(5000|7000) .*ControlCenter'; then
     print -r -- "$FULL" | grep -q '↳ AirPlay Receiver (ControlCenter) uses port' \

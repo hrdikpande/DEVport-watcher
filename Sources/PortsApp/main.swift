@@ -113,6 +113,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let overrides = OverrideStore()
     var icons: [String: NSImage] = [:]
     var showHidden = false
+    var analysis = Analysis()
+    var dockerReachable: Bool?
+    let localhostIPv6First = localhostPrefersIPv6()
     var stopAlerts: [String: NSWindow] = [:]     // the one open alert of each running stop flow
     var menuOpen = false
     var scanning = false
@@ -144,24 +147,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func refresh(withDocker: Bool) {
         guard !scanning else { return }
         scanning = true
-        let cachedDocker = docker
+        let cachedDocker = docker, cachedReachable = dockerReachable
         let probe = withDocker && menuOpen          // web probes run only while the menu is open
+        let ipv6First = localhostIPv6First
         scanQueue.async {
             // Menu open: query containers in this same scan. Background poll: reuse the last map —
             // scan() only applies it to container-runtime proxies, so a native process never inherits it.
-            var map = cachedDocker
+            var map = cachedDocker, reachable = cachedReachable
             // CPU % is sampled only while the menu is open, on the scan whose result is shown.
             var result = scan(docker: map)
             if withDocker {
-                map = needsContainerQuery(result) ? dockerPorts() : [:]
+                if needsContainerQuery(result) {
+                    let q = dockerQuery()
+                    map = q ?? [:]
+                    reachable = q != nil
+                } else { map = [:]; reachable = nil }
                 result = scan(docker: map, sampleCPU: probe)
             }
             result = applyOverrides(self.web.apply(result, probe: probe), self.overrides)
+            // Orphans, duplicates and Doctor. launchctl and the leftover sweep run only while the menu is open.
+            var input = DoctorInput()
+            input.dockerReachable = reachable
+            input.localhostIPv6First = ipv6First
+            let a = analyze(result, starred: self.overrides.starred, includeLeftovers: probe, doctor: input,
+                            jobsMaxAge: probe ? 30 : .infinity)
             RunLoop.main.perform(inModes: [.common]) {
                 MainActor.assumeIsolated {
                     self.scanning = false
                     self.docker = map
-                    guard result != self.listeners else { return }   // nothing changed: don't touch the UI
+                    self.dockerReachable = reachable
+                    let changed = result != self.listeners || a.issues != self.analysis.issues
+                        || a.leftovers != self.analysis.leftovers || a.verdicts != self.analysis.verdicts
+                    self.analysis = a
+                    guard changed else { return }                      // nothing changed: don't touch the UI
                     self.listeners = result
                     self.render()
                 }
@@ -202,6 +220,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         show.submenu = sub
         menu.addItem(show)
 
+        if !analysis.issues.isEmpty {
+            menu.addItem(.separator())
+            menu.addItem(NSMenuItem.sectionHeader(title: "Health · \(analysis.issues.count)"))
+            for issue in analysis.issues.prefix(8) { menu.addItem(issueItem(issue)) }
+        }
         if shown.isEmpty {
             menu.addItem(.separator())
             menu.addItem(infoItem(filter == .developer ? "No dev servers running" : "Nothing listening", symbol: "checkmark.circle"))
@@ -220,7 +243,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             for l in rows { menu.addItem(row(l)) }
         }
 
+        if !analysis.leftovers.isEmpty {
+            menu.addItem(.separator())
+            menu.addItem(NSMenuItem.sectionHeader(title: "Leftovers · \(analysis.leftovers.count)"))
+            for left in analysis.leftovers { menu.addItem(leftoverItem(left)) }
+        }
         menu.addItem(.separator())
+        let cleanable = cleanupCandidates()
+        let clean = ActionItem("Clean Up Leftovers…", symbol: "sparkles", key: "") { [weak self] in self?.cleanUp() }
+        clean.isEnabled = !cleanable.isEmpty
+        menu.addItem(clean)
+        menu.addItem(ActionItem("Copy Setup Prompt for AI", symbol: "text.bubble", key: "") { [weak self] in
+            guard let self else { return }
+            copyToPasteboard(aiSetupPrompt(self.listeners))
+        })
         if hiddenCount > 0 {
             let toggle = ActionItem(showHidden ? "Hide Hidden Rows" : "Show Hidden (\(hiddenCount))", symbol: "eye", key: "") {
                 [weak self] in self?.showHidden.toggle(); self?.build()
@@ -245,6 +281,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if l.exposed {
             text.append(NSAttributedString(string: "  LAN", attributes: [
                 .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemOrange]))
+        }
+        if let v = analysis.verdict(l), v.level >= .likely {
+            text.append(NSAttributedString(string: "  ORPHAN", attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemPurple]))
+        }
+        if analysis.isDuplicate(l) {
+            text.append(NSAttributedString(string: "  TWICE", attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemBlue]))
         }
         if !l.workers.isEmpty {
             text.append(NSAttributedString(string: "  ×\(l.workers.count + 1)", attributes: [
@@ -274,6 +318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sub.addItem(infoItem(cmd.count > 90 ? String(cmd.prefix(89)) + "…" : cmd, symbol: "terminal"))
         for line in detailLines(l) { sub.addItem(infoItem(line.text, symbol: line.symbol)) }
         for line in classificationLines(l) { sub.addItem(infoItem(line.text, symbol: line.symbol)) }
+        for line in verdictLines(l) { for (i, w) in wrap(line.text, 70).enumerated() { sub.addItem(infoItem(w, symbol: i == 0 ? line.symbol : nil)) } }
         sub.addItem(.separator())
         if let link = KnownPorts.settingsAction(l) {           // the fix that frees the port: listed first
             sub.addItem(ActionItem(link.title, symbol: "gearshape", key: "") { NSWorkspace.shared.open(link.url) })
@@ -291,6 +336,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             sub.addItem(ActionItem("Copy Start Command", symbol: "doc.on.clipboard", key: "") { copyToPasteboard(l.startCommand) })
         }
         sub.addItem(.separator())
+        if let older = analysis.olderInstance(of: l) {
+            sub.addItem(ActionItem("Stop the Older One (:\(older.port), PID \(older.pid))…", symbol: "clock.arrow.circlepath", key: "") {
+                [weak self] in self?.stop(older)
+            })
+        }
         if let c = l.container {
             sub.addItem(ActionItem("Stop Container “\(c)”", symbol: "stop.circle", key: "") { [weak self] in self?.stopContainer(c, port: l.port) })
         } else if KnownPorts.restartsAutomatically(l) {
@@ -365,7 +415,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         })
         m.addItem(.separator())
         for (title, symbol, flag) in [("Favorite", "star", \Override.favorite), ("Hide", "eye.slash", \Override.hidden),
-                                      ("Mute Notifications", "bell.slash", \Override.muted)] {
+                                      ("Mute Notifications", "bell.slash", \Override.muted),
+                                      ("Star (Never Flag as Orphan)", "star.circle", \Override.starred)] {
             let i = ActionItem(title, symbol: symbol, key: "") { [weak self] in self?.customize(l) { $0[keyPath: flag].toggle() } }
             i.state = o[keyPath: flag] ? .on : .off
             m.addItem(i)
@@ -380,6 +431,111 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return item
     }
 
+    // MARK: Health, orphans and clean-up
+
+    func verdictLines(_ l: Listener) -> [(text: String, symbol: String?)] {
+        var lines: [(String, String?)] = []
+        if let s = analysis.starter(l) {
+            lines.append(("Started by: " + (s.pid.map { "\(s.name) (PID \($0))" } ?? s.name)
+                          + (s.kind == .unknown ? "" : " · \(s.kind.title)"), "person.crop.circle"))
+        }
+        if let v = analysis.verdict(l) {
+            let dot = ["green": "🟢", "yellow": "🟡", "red": "🔴"][v.safeToStop.rawValue] ?? ""
+            lines.append(("\(dot) Safe to stop? \(v.safeToStop.title) · \(v.level.title)", "questionmark.circle"))
+            for e in v.evidence { lines.append(("• " + e, nil)) }
+        }
+        return lines
+    }
+
+    func issueItem(_ issue: Issue) -> NSMenuItem {
+        let symbol = ["info.circle", "exclamationmark.triangle", "exclamationmark.octagon"][issue.severity.rawValue]
+        let item = NSMenuItem(title: issue.title, action: nil, keyEquivalent: "")
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: issue.severity.title)
+        let sub = NSMenu()
+        for (i, line) in wrap(issue.explanation, 70).enumerated() { sub.addItem(infoItem(line, symbol: i == 0 ? "text.alignleft" : nil)) }
+        if let title = issue.fixTitle, let fix = issue.fix {
+            sub.addItem(.separator())
+            sub.addItem(ActionItem(title, symbol: "wrench.and.screwdriver", key: "") { [weak self] in self?.apply(fix) })
+        }
+        item.submenu = sub
+        return item
+    }
+
+    func apply(_ fix: Fix) {
+        switch fix {
+        case .cleanUpLeftovers: cleanUp()
+        case .stopOlder(let pid, let start):
+            if let l = listeners.first(where: { $0.pid == pid && $0.start == start }) { stop(l) }
+        case .openURL(let url): NSWorkspace.shared.open(url)
+        }
+    }
+
+    func leftoverItem(_ left: Leftover) -> NSMenuItem {
+        let p = left.process
+        let item = NSMenuItem(title: "\(left.tool)\(p.project.map { " · " + $0.display } ?? "")   PID \(p.pid)  ORPHAN",
+                              action: nil, keyEquivalent: "")
+        item.image = NSImage(systemSymbolName: "leaf", accessibilityDescription: "Leftover")
+        item.toolTip = tilde(p.command)
+        let sub = NSMenu()
+        sub.addItem(infoItem(tilde(p.command).prefix(90).description, symbol: "terminal"))
+        for e in left.verdict.evidence { for (i, w) in wrap(e, 70).enumerated() { sub.addItem(infoItem((i == 0 ? "• " : "  ") + w)) } }
+        sub.addItem(.separator())
+        sub.addItem(ActionItem("Stop…", symbol: "xmark.octagon", key: "") { [weak self] in self?.confirmKill(p) })
+        item.submenu = sub
+        return item
+    }
+
+    /// Confirmed orphans (checked by default) and likely ones (opt-in), listeners and leftovers alike.
+    func cleanupCandidates() -> [(l: Listener, checked: Bool, why: String)] {
+        var out: [(Listener, Bool, String)] = []
+        for l in listeners where l.uid == getuid() {
+            guard let v = analysis.verdict(l), v.level >= .likely else { continue }
+            out.append((l, v.level == .confirmed, v.evidence.first ?? ""))
+        }
+        for left in analysis.leftovers { out.append((left.process, true, left.verdict.evidence.first ?? "")) }
+        return out
+    }
+
+    /// The one modal confirmation the spec allows: lists exactly what will be signalled, then runs the safe ladder.
+    func cleanUp() {
+        let candidates = cleanupCandidates()
+        guard !candidates.isEmpty else { alert("Nothing to clean up", "No orphaned processes were found."); return }
+        NSApp.activate()
+        let a = NSAlert()
+        a.alertStyle = .warning
+        a.messageText = "Clean up \(candidates.count) orphaned process\(candidates.count == 1 ? "" : "es")?"
+        a.informativeText = "Each checked process gets SIGTERM (SIGCONT too if it is suspended) and time to exit. "
+            + "Only dev servers are force-killed (SIGKILL) if they don't exit within 2 s; anything else that keeps "
+            + "running is reported, never force-killed. Likely orphans are unchecked: tick them to include them."
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        var boxes: [NSButton] = []
+        for c in candidates {
+            let port = c.l.port > 0 ? ":\(c.l.port) " : ""
+            let box = NSButton(checkboxWithTitle: "\(port)\(c.l.label) — PID \(c.l.pid) · \(StopPolicy(c.l).autoForce ? "SIGTERM, SIGKILL after 2 s" : "SIGTERM only")",
+                               target: nil, action: nil)
+            box.state = c.checked ? .on : .off
+            box.toolTip = c.why
+            boxes.append(box)
+            stack.addArrangedSubview(box)
+        }
+        stack.frame = NSRect(x: 0, y: 0, width: 460, height: CGFloat(boxes.count) * 22)
+        a.accessoryView = stack
+        a.addButton(withTitle: "Clean Up").hasDestructiveAction = true
+        a.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        let targets = zip(candidates, boxes).filter { $0.1.state == .on }.map { StopTarget($0.0.l) }
+        guard !targets.isEmpty else { return }
+        var outcomes: [StopOutcome] = []
+        afterWork({ outcomes = stopAll(targets, registry: self.stops) }) { fresh in
+            let ports = candidates.map(\.l.port).filter { $0 > 0 }
+            let report = (outcomes.map(\.summary) + Set(ports).sorted().map { portReport($0, owners: owners(ofPort: $0, in: fresh)) })
+                .joined(separator: "\n")
+            self.alert("Clean-up finished", report)
+        }
+    }
+
     // MARK: Actions
 
     /// Run `work` off the main thread, then hand a fresh scan (with container labels) back to the UI.
@@ -387,9 +543,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         scanQueue.async {
             work()
             let fresh = applyOverrides(self.web.apply(scanWithContainers(), probe: false), self.overrides)
+            let a = analyze(fresh, starred: self.overrides.starred, includeLeftovers: true)
             RunLoop.main.perform(inModes: [.common]) {
                 MainActor.assumeIsolated {
-                    if fresh != self.listeners { self.listeners = fresh; self.render() }
+                    self.analysis = a
+                    if fresh != self.listeners { self.listeners = fresh }
+                    self.render()
                     done(fresh)
                 }
             }
@@ -419,14 +578,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let key = StopRegistry.key(pid: l.pid, start: l.start)
         guard beginStop(key) else { return }
         let policy = StopPolicy(l)
-        var detail = "Port \(l.port) · PID \(l.pid)\n\(tilde(l.command))"
+        var detail = (l.port > 0 ? "Port \(l.port) · " : "") + "PID \(l.pid)\n\(tilde(l.command))"
         if let warning = policy.warning { detail += "\n\n⚠️ " + warning }
         if l.kind == .system { detail += "\n\nThis is an app or system process. Stopping it may close an app." }
         if l.kind == .docker { detail += "\n\nThis is the container engine. Stopping it stops ALL containers." }
         guard confirm("Stop \(l.label)?", detail, button: policy == .dataStore ? "Shut Down" : "Kill", key: key) else {
             return endStop(key)
         }
-        stop(pid: l.pid, start: l.start, policy: policy, ports: [l.port], name: l.label)
+        stop(pid: l.pid, start: l.start, policy: policy, ports: l.port > 0 ? [l.port] : [], name: l.label)
     }
 
     /// Stop ladder, then rescan and report each port. Data stores are never force-killed here:
@@ -436,8 +595,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var err: KillError?
         afterWork({ err = safeTerminate(pid: pid, start: start, policy: policy) }) { fresh in
             if let err { self.alert("Couldn't stop PID \(pid)", err.description, key: key); return self.endStop(key) }
-            let report = ports.map { portReport($0, owners: owners(ofPort: $0, in: fresh)) }.joined(separator: "\n")
-            let survived = fresh.contains { $0.pid == pid && $0.start == start }
+            let survived = ports.isEmpty ? Proc.identity(pid)?.start == start : fresh.contains { $0.pid == pid && $0.start == start }
+            let report = ports.isEmpty ? (survived ? "\(name) (PID \(pid)) is still running" : "\(name) (PID \(pid)) stopped")
+                : ports.map { portReport($0, owners: owners(ofPort: $0, in: fresh)) }.joined(separator: "\n")
             guard survived && !policy.autoForce else { self.alert(report, "", key: key); return self.endStop(key) }
             guard self.confirm("\(name) is still running", report + "\n\nIt didn't shut down within \(Int(policy.grace)) s. "
                                + "Force Quit kills it immediately (SIGKILL) and may lose unsaved data.",
@@ -446,7 +606,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.afterWork({ forceErr = forceKill(pid: pid, start: start) }) { fresh in
                 self.closeStopAlert(key)
                 if let forceErr { self.alert("Couldn't force quit PID \(pid)", forceErr.description, key: key) }
-                else { self.alert(ports.map { portReport($0, owners: owners(ofPort: $0, in: fresh)) }.joined(separator: "\n"), "", key: key) }
+                else {
+                    let report = ports.map { portReport($0, owners: owners(ofPort: $0, in: fresh)) }.joined(separator: "\n")
+                    self.alert(report.isEmpty ? "\(name) (PID \(pid)) was force-quit" : report, "", key: key)
+                }
                 self.endStop(key)
             }
         }

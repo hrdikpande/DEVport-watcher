@@ -11,7 +11,22 @@ public struct Override: Codable, Equatable, Sendable {
     public var favorite = false
     public var hidden = false
     public var muted = false
+    public var starred = false        // never flag as orphan or duplicate suspect
     public init() {}
+
+    enum CodingKeys: String, CodingKey { case name, kind, linkedApp, note, favorite, hidden, muted, starred }
+    /// Tolerant: a file written by an older version (missing keys) still loads.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decodeIfPresent(String.self, forKey: .name)
+        kind = try? c.decodeIfPresent(Kind.self, forKey: .kind)
+        linkedApp = try c.decodeIfPresent(String.self, forKey: .linkedApp)
+        note = try c.decodeIfPresent(String.self, forKey: .note)
+        favorite = try c.decodeIfPresent(Bool.self, forKey: .favorite) ?? false
+        hidden = try c.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
+        muted = try c.decodeIfPresent(Bool.self, forKey: .muted) ?? false
+        starred = try c.decodeIfPresent(Bool.self, forKey: .starred) ?? false
+    }
     public var isEmpty: Bool { self == Override() }
 }
 
@@ -52,6 +67,11 @@ public final class OverrideStore: @unchecked Sendable {
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         try enc.encode(items).write(to: url, options: .atomic)
     }
+}
+
+extension OverrideStore {
+    /// Signatures the user starred (Phase 4: never flagged).
+    public var starred: Set<String> { Set(all.filter { $0.value.starred }.map(\.key)) }
 }
 
 /// Apply overrides to fresh scan results: label, displayed category, flags.
