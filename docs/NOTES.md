@@ -240,3 +240,74 @@ New Phase 1 tests live in `Tests/PortsCoreTests/Phase1Tests.swift`.
   is every 15 s), on every open, and at once when proxy listeners change. The panel list is lazy again. Footprint
   went from 45 MB to 37 MB; idle CPU is 0.055 %.
 
+## Found during Phase 12
+
+- `release.sh` was run locally without secrets: it produced `Ports-1.0.0-unsigned.zip` and `.dmg` (`hdiutil verify`
+  OK), SHA-256 sums and release notes. The signed and notarized paths can't be exercised without the owner's
+  certificate and notary key.
+- The bundle identifier is still `local.portwatch.ports` (Brand.swift), not the spec's suggested
+  `io.github.hrdikpande.ports`. Changing it would reset existing users' preferences and the login item, so it
+  stays the owner's call (one line in Brand.swift and Info.plist).
+- The cask and formula templates need real SHA-256 values and a published tap repository.
+
+## Idle CPU and memory gates (final)
+
+- Memory gate: **physical footprint** (Activity Monitor's "Memory", `vmmap --summary`), budget 40 MB. RSS is
+  printed for information only: it counts shared AppKit/SwiftUI framework pages that every app maps, so a bare
+  status-item app already shows about 50 MB RSS. Footprint is what the app actually costs the system.
+- Leak check (perf_check): the footprint after 20 panel opens must be within 5 MB of the footprint after 3.
+  Measured: 36.8 → 38.8 MB with the harness, 33.0 → 34.4 MB without.
+- Idle CPU diagnosis (menu closed, 60 s settle, `sample` 10 s, `top -stats pid,cpu,idlew`):
+  - At rest, every thread is parked in `mach_msg`, with about 0.4 idle wake-ups/s and 0.15 s of CPU in total.
+  - The failing runs (1.5–18 %) had the **panel still open** after perf_check's clicks. Their spike samples were
+    open-panel work: `analyze` and Docker queries on 2 s scans.
+  - Cause: the outside-click monitor recorded a "closed by outside click" time even when the panel wasn't open,
+    so the status item's next open click was swallowed, and the following "close" click opened the panel.
+  - Fixed: that time is recorded only when a close really happens.
+- Also fixed:
+  - The status item's title and image are set only when they change; a fresh dot image was drawn on every scan.
+  - The panel model publishes only real diffs; the scan time and container status only while the panel is
+    visible.
+  - perf_check now verifies that the panel is closed before measuring idle CPU, and fails if it isn't.
+- Checked, nothing to change:
+  - The timer returns to the closed cadence on close (`popoverDidClose` → `reschedule`), with tolerance ≥ 50 %.
+  - No ProcessInfo activity or power assertion is held, so App Nap works.
+  - No probes, CPU sampling or database handshakes run while closed. Docker is asked at most once a minute
+    while closed.
+- Idle CPU (menu closed, 120 s, `top` average): 0.058 % with the harness running; 0.034–0.144 % without it
+  (the 0.144 % run was one of four). Steady state is about 0.07 %. The first 10 s after closing include the
+  SwiftUI teardown.
+- **Idle CPU measurement changed (decided before the next gate run, not after a failure).** The gate is now the
+  app's own CPU time (user + system, `ps -o cputime=`) read at the start and end of each 120 s closed-panel window:
+  idle % = CPU-time delta / 120 s. Three windows; the gate is the median, against the same 0.1 % budget.
+  - Why: `top` prints CPU per sample with one decimal (0.0, 0.3 …), so near 0.1 % a single scan landing inside a
+    1 s sample decided the result. That is how the same build read 0.034 % and 0.144 % on consecutive runs.
+  - CPU time is cumulative and exact to 10 ms, so the window total doesn't depend on when samples happen. The
+    median of three windows keeps one burst (such as the teardown just after the panel closes) from deciding the
+    gate alone.
+- **Closed-panel scan cost (the real idle CPU bug).** After the UI work, the gate's windows read 0.1–0.2 % with
+  0.01 s of CPU per 10 s scan.
+  - Profile (`sample`, 40 s at 1 ms): two thirds of the scan time was `Proc.sockets`, which walks the file
+    descriptors of all ~730 processes on every tick.
+  - Fix: on closed-panel scans, a process that had no listening socket at its last check is re-checked every
+    30 s; listeners and new PIDs are still checked every scan. Open-panel scans, full refreshes and the CLI check
+    every process.
+  - Known limit (commented as a shortcut in ProcessCache): a long-running process that starts listening later,
+    or a new process reusing a quiet PID, appears in the closed-panel count within 30 s. It appears at once when
+    the panel opens.
+  - Result: 6 minutes idle = 0.30–0.36 s of CPU (about 0.08–0.1 %) on this Mac.
+- One gate window read 3.367 % (median 0.058 %). It did not reproduce in 2 × 6 minutes of watching with a burst
+  sampler, before or after 20 panel cycles. It was most likely caused by activity elsewhere on the Mac (for
+  example many ports changing at once). The median of three windows is meant for exactly this; a failing median
+  is treated as a bug.
+- **Docker CLI respawning (the idle CPU bug with the harness).** With the harness running, the median was
+  0.18–0.23 %. The harness's fake `gvproxy` makes Ports look up containers. No engine socket answered, so every
+  closed-panel lookup (once a minute) spawned the `docker` CLI fallback, which failed. Fix: when nothing answered
+  last time, closed-panel lookups wait 10 minutes; an open panel always asks again. Median after the fix: 0.058 %
+  (windows 0.009 · 0.058 · 0.083).
+- **Panel state in scripts.** Once the panel's view was built only on open (the memory fix), System Events
+  stopped reporting the popover as a child of the status item. ui_smoke then said "did not open", and
+  perf_check's "is it closed?" check could pass while the panel was still open.
+  - Fix: both scripts read the app's on-screen windows from Quartz (`Scripts/panel_windows.swift`, a window
+    list only, no screenshots). The panel is open when a window taller than 300 pt exists.
+

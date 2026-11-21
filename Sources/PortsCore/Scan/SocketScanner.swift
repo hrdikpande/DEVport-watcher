@@ -6,13 +6,18 @@ import Foundation
 /// One scan of every listening socket. Static per-process data comes from `cache` (keyed by pid + start
 /// time); what can change (ppid, state, TTY, metrics, connections, branch) is read every time.
 /// `sampleCPU` (panel open only) adds CPU % from the previous sample.
+/// `quietRecheck` (closed-panel scans): a process that had no listening socket at its last check is re-checked only
+/// after this many seconds; listeners and new PIDs are checked every scan. 0 checks every process (default).
 public func scan(docker: [Int: String], containers: [Int: [ContainerInfo]] = [:], cache: ProcessCache = .shared, sampleCPU: Bool = false,
-                 cpu: CPUSampler = .shared) -> [Listener] {
+                 cpu: CPUSampler = .shared, quietRecheck: TimeInterval = 0) -> [Listener] {
     var out: [Listener] = []
     var branches: [String: String?] = [:]          // repo root -> branch, read once per scan
     let now = DispatchTime.now().uptimeNanoseconds
-    for pid in Proc.allPIDs() {
+    let pids = Proc.allPIDs()
+    let skip = cache.quietPIDs(olderThan: quietRecheck, live: pids)
+    for pid in pids where !skip.contains(pid) {
         let sockets = Proc.sockets(pid)
+        if sockets.listening.isEmpty { cache.markQuiet(pid) } else { cache.markListening(pid) }
         guard !sockets.listening.isEmpty, let bsd = Proc.bsdInfo(pid) else { continue }
         let info = cache.info(pid: pid, start: bsd.start)
         let exe = info.exe, args = info.argv, cwd = info.cwd

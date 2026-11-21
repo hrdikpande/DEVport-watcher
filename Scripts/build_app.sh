@@ -32,6 +32,11 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp "$BIN_PATH/PortsApp" "$APP_BIN"
 cp "$BIN_PATH/ports" "$CLI_BIN"
 cp Info.plist "$APP/Contents/Info.plist"
+plutil -replace CFBundleDevelopmentRegion -string en "$APP/Contents/Info.plist"
+if [[ -n "${VERSION:-}" ]]; then                 # release builds: VERSION=1.2.3 (from the git tag)
+  plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
+  plutil -replace CFBundleVersion -string "${BUILD_NUMBER:-$VERSION}" "$APP/Contents/Info.plist"
+fi
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # Localizable.xcstrings -> <lang>.lproj/Localizable.strings (CommandLineTools ship no xcstringstool).
 python3 - "$APP/Contents/Resources" <<'PY2'
@@ -53,9 +58,15 @@ for bin in "$APP_BIN" "$CLI_BIN"; do [[ -f "$bin" ]] || fail "missing $bin"; don
 cmp -s "$APP_BIN" "$CLI_BIN" && fail "$APP_BIN and $CLI_BIN are identical (one overwrote the other)"
 otool -L "$APP_BIN" | grep -q AppKit || fail "$APP_BIN does not link AppKit (is it the CLI?)"
 
-codesign --force --options runtime --sign - "$CLI_BIN"       # nested code is signed before the bundle
-codesign --force --options runtime --sign - "$APP"
+# Developer ID when DEVELOPER_ID_APPLICATION names an identity in the keychain ("Developer ID Application: …"),
+# otherwise ad-hoc (runs on this Mac; Gatekeeper blocks it elsewhere unless the user allows it).
+SIGN_ID="${DEVELOPER_ID_APPLICATION:-${DEVELOPER_ID:--}}"
+SIGN_FLAGS=(--force --options runtime --sign "$SIGN_ID")
+[[ "$SIGN_ID" != "-" ]] && SIGN_FLAGS+=(--timestamp)
+codesign "${SIGN_FLAGS[@]}" "$CLI_BIN"       # nested code is signed before the bundle
+codesign "${SIGN_FLAGS[@]}" "$APP"
 codesign --verify --strict "$APP"
+if [[ "$SIGN_ID" == "-" ]]; then echo "Signed ad-hoc (unsigned for distribution)"; else echo "Signed with $SIGN_ID"; fi
 
 for bin in "$APP_BIN" "$CLI_BIN"; do
   archs="$(lipo -archs "$bin")"

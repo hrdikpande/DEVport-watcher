@@ -66,15 +66,21 @@ final class PanelModel: ObservableObject {
     var visibleRows: [Listener] { sections.flatMap(\.rows) }
     var hiddenCount: Int { listeners.filter { isHidden($0, settings: settings) }.count }
 
+    /// Publishes only real changes; the scan time and container status only while the panel is visible.
     func update(listeners ls: [Listener], analysis a: Analysis?, containers c: ContainerSnapshot?) {
-        lastScan = Date()
+        if visible { lastScan = Date() }
         if ls != listeners { listeners = ls }
         if let a, a.issues != analysis.issues || a.verdicts != analysis.verdicts || a.leftovers != analysis.leftovers
             || a.duplicates != analysis.duplicates || a.starters != analysis.starters { analysis = a }
-        containers = c
+        if visible && c?.at != containers?.at { containers = c }
     }
 
+    private(set) var visible = false
+
     func panelWillOpen() {
+        visible = true
+        lastScan = Date()
+        containers = ContainerDirectory.shared.last
         newKeys = PortsCore.newKeys(current: listeners, seenAtLastOpen: seenAtLastOpen)
         UpdateCheck.runIfDue(enabled: settings.updateCheck) { tag in
             Task { @MainActor in self.updateTag = tag }
@@ -82,6 +88,7 @@ final class PanelModel: ObservableObject {
     }
 
     func panelDidClose() {
+        visible = false
         seenAtLastOpen = Set(listeners.map(listenerKey))
         prompt = nil
         selection.removeAll()

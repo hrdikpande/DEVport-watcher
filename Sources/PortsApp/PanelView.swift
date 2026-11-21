@@ -17,7 +17,7 @@ struct PanelView: View {
             Divider()
             footer
         }
-        .frame(width: 460, height: 620)
+        .frame(width: 480, height: 640)
         .background(.regularMaterial)
         .background(shortcuts)
         .onKeyPress(.downArrow) { model.move(1); return .handled }
@@ -55,36 +55,53 @@ struct PanelView: View {
     }
 
     var header: some View {
-        VStack(spacing: 6) {
-            HStack {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
-                TextField(L("Search ports, processes, projects, branches…"), text: $model.search)
-                    .textFieldStyle(.plain)
-                    .focused($searchFocused)
-                    .accessibilityLabel(L("Search"))
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                    TextField(L("Search ports, processes, projects…"), text: $model.search)
+                        .textFieldStyle(.plain)
+                        .focused($searchFocused)
+                        .accessibilityLabel(L("Search"))
+                    if !model.search.isEmpty {
+                        Button { model.search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                            .buttonStyle(.plain).accessibilityLabel(L("Clear search"))
+                    }
+                }
+                .padding(.horizontal, 8).padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.quaternary.opacity(0.6)))
+                Button { NSApp.terminate(nil) } label: { Image(systemName: "power") }
+                    .buttonStyle(.borderless).help(L("Quit Ports") + " ⌘Q").accessibilityLabel(L("Quit Ports"))
+                    .keyboardShortcut("q", modifiers: .command)
                 Menu {
-                    Picker(L("Sort"), selection: $model.sort) {
+                    Picker(L("Sort by"), selection: $model.sort) {
                         ForEach(PanelSort.allCases, id: \.self) { Text(L($0.title)).tag($0) }
                     }
+                    Divider()
                     Toggle(L("Show Hidden") + " (\(model.hiddenCount))", isOn: $model.showHidden)
-                } label: { Image(systemName: "arrow.up.arrow.down.circle") }
-                    .menuStyle(.borderlessButton).fixedSize().accessibilityLabel(L("Sort and view options"))
+                } label: { Image(systemName: "line.3.horizontal.decrease.circle") }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                    .help(L("Sort and view options")).accessibilityLabel(L("Sort and view options"))
             }
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
+                HStack(spacing: 3) {
                     ForEach(PanelFilter.allCases, id: \.rawValue) { f in
-                        Button(L(f.title)) { model.filter = f }
-                            .buttonStyle(.bordered)
-                            .tint(model.filter == f ? .accentColor : nil)
-                            .controlSize(.small)
-                            .accessibilityLabel(L(f.title) + (model.filter == f ? ", " + L("selected") : ""))
-                            .help("⌘\(f.rawValue + 1)")
-                            .accessibilityIdentifier("filter-\(f.rawValue)")
+                        let on = model.filter == f
+                        Button { model.filter = f } label: {
+                            Text(L(f.title)).font(.subheadline.weight(on ? .semibold : .regular))
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .foregroundStyle(on ? Color.white : Color.primary)
+                                .background(Capsule().fill(on ? Color.accentColor : Color.secondary.opacity(0.14)))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(L(f.title) + (on ? ", " + L("selected") : ""))
+                        .help("⌘\(f.rawValue + 1)")
+                        .accessibilityIdentifier("filter-\(f.rawValue)")
                     }
                 }
             }
         }
-        .padding(8)
+        .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 8)
     }
 
     var list: some View {
@@ -121,37 +138,54 @@ struct PanelView: View {
     }
 
     var footer: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
                 if !model.selection.isEmpty {
-                    Button(L("Stop Selected") + " (\(model.selection.count))…") {
+                    Button(L("Stop") + " \(model.selection.count)…") {
                         app.stopSelected(model.listeners.filter { model.selection.contains(listenerKey($0)) })
-                    }.tint(.red)
+                    }.buttonStyle(.borderedProminent).tint(.red).controlSize(.small)
                 }
-                Button(L("Check Port…")) { app.checkPortPrompt() }
-                Button(L("Find Free Port…")) { app.findFreePort() }
-                Button(L("Clean Up…")) { app.cleanUp() }.disabled(app.cleanupCandidates().isEmpty)
+                FooterButton(title: L("Check Port…"), symbol: "magnifyingglass") { app.checkPortPrompt() }
+                FooterButton(title: L("Free Port…"), symbol: "number") { app.findFreePort() }
+                FooterButton(title: L("Clean Up…"), symbol: "sparkles") { app.cleanUp() }.disabled(app.cleanupCandidates().isEmpty)
                 Spacer()
-                Button { model.showHistory.toggle() } label: { Image(systemName: "clock.arrow.circlepath") }
-                    .help(L("History")).accessibilityLabel(L("History"))
-                Button { copyToPasteboard(aiSetupPrompt(model.listeners)) } label: { Image(systemName: "text.bubble") }
-                    .help(L("Copy Setup Prompt for AI")).accessibilityLabel(L("Copy Setup Prompt for AI"))
-                Button { app.openSettings() } label: { Image(systemName: "gearshape") }
-                    .help(L("Settings…") + " ⌘,").accessibilityLabel(L("Settings"))
+                IconButton(symbol: "clock.arrow.circlepath", help: L("History")) { model.showHistory.toggle() }
+                IconButton(symbol: "text.bubble", help: L("Copy Setup Prompt for AI")) { copyToPasteboard(aiSetupPrompt(model.listeners)) }
+                IconButton(symbol: "gearshape", help: L("Settings…") + " ⌘,") { app.openSettings() }
             }
-            .controlSize(.small)
-            HStack {
+            HStack(spacing: 4) {
                 if let c = model.containers {
                     let names = c.answered.isEmpty ? (c.viaCLI ? "docker CLI" : L("not answering")) : c.answered.map(\.name).joined(separator: ", ")
-                    Label(L("Containers") + ": \(names) · \(c.containers.filter { $0.state == "running" }.count) " + L("running"), systemImage: "shippingbox")
+                    Image(systemName: "shippingbox").imageScale(.small)
+                    Text(names + " · " + String(c.containers.filter { $0.state == "running" }.count) + " " + L("running"))
                 }
                 Spacer()
                 if let tag = model.updateTag { Text(L("Update available") + ": \(tag)").foregroundStyle(.blue) }
-                if let t = model.lastScan { Text(L("Scanned") + " " + t.formatted(date: .omitted, time: .standard)) }
+                if let t = model.lastScan { Text(L("Updated") + " " + t.formatted(date: .omitted, time: .shortened)) }
             }
             .font(.caption).foregroundStyle(.secondary)
         }
-        .padding(8)
+        .padding(.horizontal, 12).padding(.vertical, 10)
+    }
+}
+
+struct FooterButton: View {
+    let title: String
+    let symbol: String
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) { Label(title, systemImage: symbol).font(.callout).lineLimit(1).fixedSize() }
+            .buttonStyle(.borderless)
+    }
+}
+
+struct IconButton: View {
+    let symbol: String
+    let help: String
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) { Image(systemName: symbol).font(.body) }
+            .buttonStyle(.borderless).help(help).accessibilityLabel(help)
     }
 }
 
@@ -161,12 +195,17 @@ struct SectionHeader: View {
     let title: String
     let count: Int
     var body: some View {
-        HStack { Text(title).font(.caption.weight(.semibold)); Text("\(count)").font(.caption).foregroundStyle(.secondary); Spacer() }
-            .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(.bar)
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityIdentifier("section-\(title)")
+        HStack(spacing: 6) {
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+            Text(String(count)).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                .padding(.horizontal, 5).padding(.vertical, 1).background(Capsule().fill(.quaternary))
+            Spacer()
+        }
+        .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 4)
+        .background(.regularMaterial)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityIdentifier("section-\(title)")
     }
 }
 
@@ -183,28 +222,34 @@ struct RowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                Image(nsImage: app.icon(for: l) ?? NSImage()).resizable().frame(width: 16, height: 16).accessibilityHidden(true)
-                Text(":\(l.port)").font(.system(.body, design: .monospaced).weight(.semibold)).frame(width: 62, alignment: .leading)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(l.label).lineLimit(1).truncationMode(.middle)
-                    Text(model.subtitle(l)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Image(nsImage: app.icon(for: l) ?? NSImage()).resizable().frame(width: 18, height: 18).accessibilityHidden(true)
+                // verbatim: a port is an identifier, never "8,787".
+                Text(verbatim: String(l.port)).font(.system(.body, design: .rounded).weight(.semibold).monospacedDigit())
+                    .frame(width: 52, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(l.label).font(.body).lineLimit(1).truncationMode(.middle)
+                    let sub = model.subtitle(l)
+                    if !sub.isEmpty { Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                 }
                 Spacer(minLength: 4)
                 // Badges keep a reserved column so rows don't jump when one appears.
                 HStack(spacing: 3) {
                     ForEach(model.badges(l)) { b in
-                        Text(b.text).font(.system(size: 9, weight: .bold)).padding(.horizontal, 4).padding(.vertical, 1)
-                            .foregroundStyle(b.color).overlay(RoundedRectangle(cornerRadius: 3).stroke(b.color.opacity(0.6)))
+                        Text(b.text).font(.system(size: 9, weight: .bold, design: .rounded)).padding(.horizontal, 5).padding(.vertical, 2)
+                            .foregroundStyle(b.color).background(Capsule().fill(b.color.opacity(0.16)))
                     }
                 }
                 .frame(minWidth: 110, alignment: .trailing)
                 if hover && l.uid == getuid() && !KnownPorts.restartsAutomatically(l) {
-                    Button { app.stop(l) } label: { Image(systemName: "xmark.circle.fill") }
+                    Button { app.stop(l) } label: { Image(systemName: "stop.circle.fill").font(.title3) }
                         .buttonStyle(.borderless).foregroundStyle(.red).help(L("Stop…")).accessibilityLabel(L("Stop") + " \(l.label)")
                 }
             }
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(model.selection.contains(key) ? Color.accentColor.opacity(0.18) : model.focused == key ? Color.secondary.opacity(0.12) : .clear)
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(
+                model.selection.contains(key) ? Color.accentColor.opacity(0.22)
+                    : (model.focused == key || hover || expanded) ? Color.primary.opacity(0.07) : .clear))
+            .padding(.horizontal, 6)
             .contentShape(Rectangle())
             .onHover { inside in if inside { model.hoverKey = key } else if model.hoverKey == key { model.hoverKey = nil } }
             .onTapGesture {
@@ -245,7 +290,7 @@ struct DetailView: View {
             DisclosureGroup(L("Customize"), isExpanded: $model.customizeOpen) { ActionGrid(actions: model.customizeActions(l)) }
                 .font(.caption)
         }
-        .padding(.leading, 34).padding(.trailing, 10).padding(.bottom, 8)
+        .padding(.leading, 46).padding(.trailing, 14).padding(.top, 2).padding(.bottom, 10)
     }
 }
 
@@ -282,7 +327,10 @@ struct IssueRow: View {
                 if let title = issue.fixTitle, let fix = issue.fix { Button(title) { app.apply(fix) }.controlSize(.small) }
             }
         }
-        .padding(.horizontal, 10).padding(.vertical, 4)
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(
+            (issue.severity == .critical ? Color.red : issue.severity == .warning ? Color.orange : Color.secondary).opacity(0.10)))
+        .padding(.horizontal, 6).padding(.vertical, 2)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(issue.severity.title + ": " + issue.title)
     }
@@ -299,10 +347,10 @@ struct LeftoverRow: View {
                 Text(left.verdict.evidence.first ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer()
-            Text("PID \(left.process.pid)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            Text(verbatim: "PID " + String(left.process.pid)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             Button(L("Stop…")) { app.stop(left.process) }.controlSize(.small)
         }
-        .padding(.horizontal, 10).padding(.vertical, 4)
+        .padding(.horizontal, 14).padding(.vertical, 6)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(L("Leftover") + " \(left.tool), PID \(left.process.pid), ORPHAN")
     }

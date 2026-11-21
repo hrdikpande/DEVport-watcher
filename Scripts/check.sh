@@ -46,8 +46,11 @@ case $rc in
   *) report "ui_smoke.sh" "FAIL"; print -r -- "$out" | tail -n 15 ;;
 esac
 out=$(./Scripts/perf_check.sh --idle-cpu 120 2>&1); rc=$?
-summary=$(print -r -- "$out" | grep -E 'footprint|idle CPU|PASSED|FAIL' | tr '\n' ' ')
+summary=$(print -r -- "$out" | grep -E 'footprint|idle CPU|PASSED|FAIL' | sed 's/^ *//' | tr '\n' ' ')
 (( rc == 0 )) && report "perf_check.sh" "pass: $summary" || report "perf_check.sh" "FAIL: $summary"
+out=$(./Scripts/perf_check.sh --idle-cpu 120 --no-harness 2>&1); rc=$?
+summary=$(print -r -- "$out" | grep -E 'idle CPU|FAIL' | tr '\n' ' ')
+(( rc == 0 )) && report "perf_check.sh (no harness)" "pass: $summary" || report "perf_check.sh (no harness)" "FAIL: $summary"
 
 priv=$( { grep -rniE 'hardik|/Users/[a-z]' Tests Sources | grep -v '/Users/test' | grep -v 'Sources/PortsCore/Brand.swift'; grep -rn '/Users/' Tests | grep -v '/Users/test/'; \
           grep -rn -E '\bkill\(' Sources | grep -v 'Sources/PortsCore/Actions/'; \

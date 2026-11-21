@@ -24,7 +24,9 @@ let tlsProbe: [UInt8] = [0x16, 0x03, 0x01, 0x00, 0x33,                  // recor
        0x01, 0x00, 0x00, 0x00]                                          // null compression; no extensions
 
 /// Send `payload`, return the first bytes of the reply ([] if none), or nil if we couldn't connect.
+/// Loopback only, by construction: any other host is refused before a socket is opened.
 func exchange(host: String, port: Int, payload: [UInt8], deadline: Date) -> [UInt8]? {
+    guard host == "127.0.0.1" || host == "::1" else { return nil }
     var hints = addrinfo()
     hints.ai_flags = AI_NUMERICHOST
     hints.ai_socktype = SOCK_STREAM

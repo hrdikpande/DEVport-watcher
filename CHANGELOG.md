@@ -8,6 +8,39 @@ All notable changes to this project will be documented here.
 - Added characterization tests and CI.
 - Added initial open-source governance documentation.
 
+### Phase 12 — distribution and documentation
+- Panel redesign:
+  - Ports are shown as plain numbers (it showed "8,787").
+  - The search field is rounded, with a clear button.
+  - A Quit button sits before the sort/view menu.
+  - Filters are capsules, sections have count pills, rows have rounded hover and selection backgrounds.
+  - Badges are tinted capsules, Health issues are tinted cards, and the footer has quieter icon buttons.
+- Settings redesign: a System Settings–style sidebar of sections with coloured icons, replacing the horizontal
+  tabs, and grouped forms with section headers and explanatory footers.
+- The idle CPU gate now reads the app's own CPU time over three 120 s closed-panel windows and gates on the
+  median (same 0.1 % budget).
+- README: every feature with what it does, who uses it and why it helps, a "Who it's for" table, and a call for
+  contributors.
+- `Scripts/release.sh`: universal build, Developer ID signature, notarization
+  (`notarytool --wait`), staple, zip and DMG, `SHA256SUMS.txt` and release
+  notes. Without signing or notary secrets it still builds everything and
+  labels the result unsigned (`Ports-<version>-unsigned.*`); it never fails
+  for missing secrets.
+- `.github/workflows/release.yml` runs on `v*` tags. It imports the certificate
+  and notary key only when their secrets exist, then publishes a GitHub
+  release with SHA-256 sums.
+- `build_app.sh` signs with `DEVELOPER_ID_APPLICATION` (hardened runtime,
+  timestamp) when set, ad-hoc otherwise, and stamps `VERSION` into
+  Info.plist.
+- Homebrew templates in `packaging/homebrew-tap`: a cask (`auto_updates
+  false`, macOS ≥ Sonoma, app + embedded CLI binary, zap, livecheck) and a
+  source-build formula.
+- README rewritten: install, features, menu bar, safety model, privacy (every
+  probe), CLI, MCP, comparison and credits, contributing. ARCHITECTURE
+  updated; FEATURES fully ticked except notarization, which needs the owner's
+  Apple Developer ID.
+- Probe sockets refuse non-loopback hosts at the lowest level.
+
 ### Phase 11 — CLI and MCP server
 - `ports` is rebuilt on swift-argument-parser, the only third-party
   dependency. Every command takes `--json`. Exit codes are stable: 0 ok,

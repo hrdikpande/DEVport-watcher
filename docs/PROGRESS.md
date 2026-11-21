@@ -7,13 +7,17 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 
 - **Branch:** `release-1`, local only. No pushes, PRs or CI (owner's rules for Phases 5–12). One commit per
   phase, "phase-N: <summary>". Phase 5 also has a first commit that splits PortsCore.swift.
-- **Done:** Phases 2–11.
-- **Next step:** Phase 12: release.sh + release.yml (sign/notarize only when the secrets exist; otherwise a labelled
-  unsigned build), Homebrew cask template + source formula, README (privacy and safety sections), final docs, final
-  self-review, check.sh twice.
+- **Done:** Phases 2–12, committed on `release-1`. check.sh passed twice in a row (2026-11-22).
+- **Next step:** owner review, the owner actions below, then push `release-1` and open the PR.
 - **Gate runner:** `./Scripts/check.sh`, which runs every gate and marks the LaunchAgent scenario "manual".
 
 ## Owner actions
+
+- Notarized releases: add the repository secrets DEVELOPER_ID_APPLICATION, DEVELOPER_ID_CERT_P12_BASE64,
+  DEVELOPER_ID_CERT_PASSWORD, NOTARY_KEY_ID, NOTARY_ISSUER_ID and NOTARY_KEY_P8_BASE64. Without them, releases are
+  labelled unsigned.
+- Homebrew: create the `homebrew-tap` repository from `packaging/homebrew-tap` and fill in the SHA-256 values.
+- Screenshots / GIF for the README (`docs/images/`).
 
 - Optional: run the MCP Inspector against `ports mcp` (it needs a network download):
   `npx @modelcontextprotocol/inspector ports mcp`, after turning on Settings › Command Line & Agents › Enable MCP server.
@@ -51,6 +55,7 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 | 9     | 0 warnings    | 0 warnings  | 170/170 ×5 | pass | pass (+ title page, JSON API, HTTPS 200) | pass | ≤ 5.1 ms | footprint 25.7 MB (RSS 69 MB) | n/a | local only |
 | 10    | 0 warnings    | 0 warnings  | 187/187 ×5 | pass | pass | manual (alive + panel opens) | ≤ 6.1 ms | footprint 38.7 MB (RSS 117 MB) | 0.067 % / 120 s | local only |
 | 11    | 0 warnings    | 0 warnings  | 199/199 ×5 | pass | pass (+ --json, exit codes, CLI stop, MCP stdio session) | manual | ≤ 5.6 ms | footprint 37.2 MB (RSS 114 MB) | 0.055 % / 120 s | local only |
+| 12    | 0 warnings    | 0 warnings  | 208/208 ×5 (check.sh run twice, both passed) | pass | pass | manual (alive + panel opens) | ≤ 6.6 ms | footprint 31.8–32.2 MB after 3 opens, 31.1–31.2 MB after 20 (RSS 108 MB) | median 0.075/0.083 % with harness, 0.033 % without (3 × 120 s CPU-time windows) | local only |
 
 Phase 4 manual gate: **`dev_harness.sh --with-launchd --check` is manual. The owner runs it.** It is not
 "passed" until the owner reports it. Launchd-job exclusion is unit-tested with `launchctl list` fixtures.

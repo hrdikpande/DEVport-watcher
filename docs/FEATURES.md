@@ -147,6 +147,6 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 - [x] MIT license and community files [0]
 - [x] Core/app/CLI split, tests, CI [0]
 - [x] Universal binary [0]
-- [ ] Developer ID + notarization [12]
-- [ ] Homebrew tap cask + source formula [12]
-- [ ] README and docs [12]
+- [ ] Developer ID + notarization [12]: needs the owner's Apple Developer ID certificate and notary key. `release.sh` and `release.yml` sign, notarize and staple when those secrets exist; without them they publish a build labelled unsigned
+- [x] Homebrew tap cask + source formula [12] (templates in `packaging/homebrew-tap`; publishing the tap repo needs the owner)
+- [x] README and docs [12]

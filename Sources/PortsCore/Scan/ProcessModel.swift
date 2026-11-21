@@ -273,6 +273,23 @@ public final class ProcessCache: @unchecked Sendable {
     }
 
     public var count: Int { lock.lock(); defer { lock.unlock() }; return statics.count }
+
+    // MARK: Quiet processes (no listening socket at the last check)
+
+    private var quiet: [pid_t: Date] = [:]
+
+    /// PIDs to skip in this scan: checked recently and listening on nothing then. Exited PIDs are forgotten.
+    /// shortcut: keyed by PID only, so a process that starts listening late, or a new process reusing a quiet PID,
+    /// shows up within `seconds` (closed panel only); key by start time if that latency ever matters.
+    func quietPIDs(olderThan seconds: TimeInterval, live: [pid_t], now: Date = Date()) -> Set<pid_t> {
+        lock.lock(); defer { lock.unlock() }
+        let alive = Set(live)
+        quiet = quiet.filter { alive.contains($0.key) }
+        guard seconds > 0 else { return [] }
+        return Set(quiet.filter { now.timeIntervalSince($0.value) < seconds }.keys)
+    }
+    func markQuiet(_ pid: pid_t, now: Date = Date()) { lock.lock(); quiet[pid] = now; lock.unlock() }
+    func markListening(_ pid: pid_t) { lock.lock(); quiet[pid] = nil; lock.unlock() }
 }
 
 // MARK: - CPU %

@@ -119,7 +119,9 @@ public final class ContainerDirectory: @unchecked Sendable {
         guard !proxies.isEmpty else { return nil }
         let sig = proxies.map { "\($0.pid):\($0.port)" }.sorted().joined(separator: ",")
         lock.lock()
-        if let c = cached, sig == proxySignature, now.timeIntervalSince(c.at) < maxAge { lock.unlock(); return c }
+        // Nothing answered last time (no socket, CLI failed): while closed, don't retry (and spawn the CLI) for 10 min.
+        let age = cached.map { !$0.reachable && maxAge > 0 } == true ? max(maxAge, 600) : maxAge
+        if let c = cached, sig == proxySignature, now.timeIntervalSince(c.at) < age { lock.unlock(); return c }
         lock.unlock()
         let snap = query(now: now)
         lock.lock(); cached = snap; proxySignature = sig; lock.unlock()

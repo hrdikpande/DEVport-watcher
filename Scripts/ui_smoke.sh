@@ -25,6 +25,10 @@ cleanup() {
   for _ in {1..100}; do lsof -nP -iTCP:$BASE-$((BASE+20)) -sTCP:LISTEN >/dev/null 2>&1 || break; sleep 0.1; done
   rm -f "$LOG"
 }
+# Panel open ⇔ the app has an on-screen window taller than 300 pt (the status item itself is ~24 pt).
+PANEL_WINDOWS="${TMPDIR:-/tmp}/ports-panel-windows"
+[[ -x "$PANEL_WINDOWS" && "$PANEL_WINDOWS" -nt Scripts/panel_windows.swift ]] || swiftc -O Scripts/panel_windows.swift -o "$PANEL_WINDOWS" 2>/dev/null
+panel_open() { "$PANEL_WINDOWS" "$APP_PID" | awk '$3 > 300 { found = 1 } END { exit !found }'; }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
@@ -144,8 +148,9 @@ check_menu() {
 }
 
 # The panel must open: the status item gains exactly one AX child (the popover) after the click.
-opened=$(osascript -e "tell application \"System Events\" to tell (first process whose unix id is $APP_PID) to count of (value of attribute \"AXChildren\" of menu bar item 1 of menu bar 1)" 2>/dev/null || echo 0)
-[[ "$opened" == "1" ]] || fail "the panel did not open (status item has $opened AX children)"
+# The panel's view is built when it opens, so give it up to 10 s to appear.
+for _ in {1..20}; do panel_open && break; sleep 0.5; done
+panel_open || fail "the panel did not open"
 echo "ui_smoke: panel opens"
 
 # Rows can't be read: System Events lists the popover but returns nothing beneath it (3 attempts:

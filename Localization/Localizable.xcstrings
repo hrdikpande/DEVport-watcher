@@ -31,12 +31,12 @@
         }
       }
     },
-    "A new confirmed orphan": {
+    "A new orphaned process is found": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A new confirmed orphan"
+            "value": "A new orphaned process is found"
           }
         }
       }
@@ -51,52 +51,52 @@
         }
       }
     },
-    "Add": {
+    "Add Matcher": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add"
+            "value": "Add Matcher"
           }
         }
       }
     },
-    "All listeners count": {
+    "Advanced": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All listeners count"
+            "value": "Advanced"
           }
         }
       }
     },
-    "Allow agents to stop processes (only your own dev servers; never databases, containers, apps or system)": {
+    "Agent configuration": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow agents to stop processes (only your own dev servers; never databases, containers, apps or system)"
+            "value": "Agent configuration"
           }
         }
       }
     },
-    "Also badge possible orphans (weak evidence)": {
+    "Agents can list ports, explain them and find free ports. Stopping is off by default. When allowed, it applies only to dev servers you started; databases, containers, apps and system processes are never stopped by an agent.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Also badge possible orphans (weak evidence)"
+            "value": "Agents can list ports, explain them and find free ports. Stopping is off by default. When allowed, it applies only to dev servers you started; databases, containers, apps and system processes are never stopped by an agent."
           }
         }
       }
     },
-    "Appearance follows the system (light, dark, increased contrast). Language: English; strings are ready for translation.": {
+    "Allow agents to stop processes": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Appearance follows the system (light, dark, increased contrast). Language: English; strings are ready for translation."
+            "value": "Allow agents to stop processes"
           }
         }
       }
@@ -111,12 +111,32 @@
         }
       }
     },
-    "CLI": {
+    "Asks GitHub for the latest release once a day. This is the only request Ports makes to the internet, and it is off by default.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "CLI"
+            "value": "Asks GitHub for the latest release once a day. This is the only request Ports makes to the internet, and it is off by default."
+          }
+        }
+      }
+    },
+    "Badge possible orphans (weak evidence)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Badge possible orphans (weak evidence)"
+          }
+        }
+      }
+    },
+    "Call a server idle after": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Call a server idle after"
           }
         }
       }
@@ -127,6 +147,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cancel"
+          }
+        }
+      }
+    },
+    "Category": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Category"
           }
         }
       }
@@ -151,12 +181,12 @@
         }
       }
     },
-    "Check for updates daily (GitHub releases; the only request Ports makes to the internet)": {
+    "Check for updates daily": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check for updates daily (GitHub releases; the only request Ports makes to the internet)"
+            "value": "Check for updates daily"
           }
         }
       }
@@ -221,22 +251,62 @@
         }
       }
     },
-    "Clear History": {
+    "Clear": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear History"
+            "value": "Clear"
           }
         }
       }
     },
-    "Client per database type": {
+    "Clear History…": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Client per database type"
+            "value": "Clear History…"
+          }
+        }
+      }
+    },
+    "Clear history?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear history?"
+          }
+        }
+      }
+    },
+    "Clear search": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear search"
+          }
+        }
+      }
+    },
+    "Coding Agents (MCP)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding Agents (MCP)"
+          }
+        }
+      }
+    },
+    "Comma-separated. Watched ports notify when they start, stop or are taken by something else. Protected ports must be typed to be stopped. Muted ports never notify.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comma-separated. Watched ports notify when they start, stop or are taken by something else. Protected ports must be typed to be stopped. Muted ports never notify."
           }
         }
       }
@@ -251,12 +321,52 @@
         }
       }
     },
+    "Command Line Tool": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command Line Tool"
+          }
+        }
+      }
+    },
+    "Command line tool": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command line tool"
+          }
+        }
+      }
+    },
+    "Confirmed and likely orphans are always badged. Launchd jobs, brew services, pm2, containers and apps are never flagged.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmed and likely orphans are always badged. Launchd jobs, brew services, pm2, containers and apps are never flagged."
+          }
+        }
+      }
+    },
     "Containers": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Containers"
+          }
+        }
+      }
+    },
+    "Contains": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contains"
           }
         }
       }
@@ -501,12 +611,12 @@
         }
       }
     },
-    "Custom matchers": {
+    "Custom Matchers": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Custom matchers"
+            "value": "Custom Matchers"
           }
         }
       }
@@ -521,6 +631,26 @@
         }
       }
     },
+    "Customized Services": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Customized Services"
+          }
+        }
+      }
+    },
+    "Database Clients": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Database Clients"
+          }
+        }
+      }
+    },
     "Databases": {
       "localizations": {
         "en": {
@@ -531,12 +661,22 @@
         }
       }
     },
-    "Detected runtimes": {
+    "Detected Runtimes": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Detected runtimes"
+            "value": "Detected Runtimes"
+          }
+        }
+      }
+    },
+    "Detection": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detection"
           }
         }
       }
@@ -551,12 +691,12 @@
         }
       }
     },
-    "Dev servers count": {
+    "Docker Desktop, OrbStack, Colima, Lima, Rancher Desktop and Podman are found automatically. Ports reads their local socket only.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dev servers count"
+            "value": "Docker Desktop, OrbStack, Colima, Lima, Rancher Desktop and Podman are found automatically. Ports reads their local socket only."
           }
         }
       }
@@ -581,22 +721,42 @@
         }
       }
     },
-    "Enable MCP server (`ports mcp`)": {
+    "Enable MCP server": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enable MCP server (`ports mcp`)"
+            "value": "Enable MCP server"
           }
         }
       }
     },
-    "Excluded ports (comma-separated)": {
+    "Every recorded port and stop event is deleted.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Excluded ports (comma-separated)"
+            "value": "Every recorded port and stop event is deleted."
+          }
+        }
+      }
+    },
+    "Excluded ports": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluded ports"
+          }
+        }
+      }
+    },
+    "Executable name": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Executable name"
           }
         }
       }
@@ -611,12 +771,12 @@
         }
       }
     },
-    "Favorite ports": {
+    "Favorites": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Favorite ports"
+            "value": "Favorites"
           }
         }
       }
@@ -627,16 +787,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Filter"
-          }
-        }
-      }
-    },
-    "Find Free Port…": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Find Free Port…"
           }
         }
       }
@@ -671,12 +821,22 @@
         }
       }
     },
-    "Forget": {
+    "Free Port…": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forget"
+            "value": "Free Port…"
+          }
+        }
+      }
+    },
+    "Full command": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full command"
           }
         }
       }
@@ -691,16 +851,6 @@
         }
       }
     },
-    "Global hot key": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Global hot key"
-          }
-        }
-      }
-    },
     "Health": {
       "localizations": {
         "en": {
@@ -711,12 +861,12 @@
         }
       }
     },
-    "Hidden ports": {
+    "Hidden": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hidden ports"
+            "value": "Hidden"
           }
         }
       }
@@ -811,16 +961,6 @@
         }
       }
     },
-    "Idle threshold": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Idle threshold"
-          }
-        }
-      }
-    },
     "Idle — no open connections": {
       "localizations": {
         "en": {
@@ -831,22 +971,12 @@
         }
       }
     },
-    "Install CLI": {
+    "Install": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install CLI"
-          }
-        }
-      }
-    },
-    "Installed at": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Installed at"
+            "value": "Install"
           }
         }
       }
@@ -867,6 +997,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Keep history for"
+          }
+        }
+      }
+    },
+    "Keyboard Shortcut": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keyboard Shortcut"
           }
         }
       }
@@ -931,12 +1071,12 @@
         }
       }
     },
-    "Links ~/.local/bin/ports to the CLI inside the app (no administrator rights). Make sure ~/.local/bin is on your PATH.": {
+    "Links ~/.local/bin/ports to the tool inside the app. No administrator password is needed; make sure ~/.local/bin is on your PATH.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Links ~/.local/bin/ports to the CLI inside the app (no administrator rights). Make sure ~/.local/bin is on your PATH."
+            "value": "Links ~/.local/bin/ports to the tool inside the app. No administrator password is needed; make sure ~/.local/bin is on your PATH."
           }
         }
       }
@@ -951,22 +1091,32 @@
         }
       }
     },
-    "MIT License. Uses only Apple frameworks (and swift-argument-parser in the CLI).": {
+    "MIT License. Built only on Apple frameworks, plus swift-argument-parser for the command line tool.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "MIT License. Uses only Apple frameworks (and swift-argument-parser in the CLI)."
+            "value": "MIT License. Built only on Apple frameworks, plus swift-argument-parser for the command line tool."
           }
         }
       }
     },
-    "Matchers change the name and category shown, never how a process is stopped.": {
+    "Match": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Matchers change the name and category shown, never how a process is stopped."
+            "value": "Match"
+          }
+        }
+      }
+    },
+    "Matchers change the name and category shown. They never change how a process is stopped or probed.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matchers change the name and category shown. They never change how a process is stopped or probed."
           }
         }
       }
@@ -981,12 +1131,12 @@
         }
       }
     },
-    "Monitored range": {
+    "Monitored Ports": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Monitored range"
+            "value": "Monitored Ports"
           }
         }
       }
@@ -1011,12 +1161,12 @@
         }
       }
     },
-    "Muted ports (never notify)": {
+    "Muted": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muted ports (never notify)"
+            "value": "Muted"
           }
         }
       }
@@ -1031,12 +1181,22 @@
         }
       }
     },
-    "No container runtime socket found.": {
+    "Never Flagged": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No container runtime socket found."
+            "value": "Never Flagged"
+          }
+        }
+      }
+    },
+    "No container runtime found.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No container runtime found."
           }
         }
       }
@@ -1071,6 +1231,16 @@
         }
       }
     },
+    "No telemetry, no account, no analytics. Every probe is read-only and listed below.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No telemetry, no account, no analytics. Every probe is read-only and listed below."
+          }
+        }
+      }
+    },
     "None of the selected rows can be stopped together.": {
       "localizations": {
         "en": {
@@ -1081,12 +1251,12 @@
         }
       }
     },
-    "None yet: use a row's Customize section.": {
+    "None yet. Expand a row in the panel and use Customize.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "None yet: use a row's Customize section."
+            "value": "None yet. Expand a row in the panel and use Customize."
           }
         }
       }
@@ -1201,6 +1371,26 @@
         }
       }
     },
+    "Number of all listeners": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Number of all listeners"
+          }
+        }
+      }
+    },
+    "Number of dev servers": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Number of dev servers"
+          }
+        }
+      }
+    },
     "OK": {
       "localizations": {
         "en": {
@@ -1251,12 +1441,32 @@
         }
       }
     },
+    "Open in Database Client uses the app you choose the first time for each database type.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in Database Client uses the app you choose the first time for each database type."
+          }
+        }
+      }
+    },
     "Open in Database Client…": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Open in Database Client…"
+          }
+        }
+      }
+    },
+    "Open the panel": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the panel"
           }
         }
       }
@@ -1291,12 +1501,12 @@
         }
       }
     },
-    "Pause scanning on battery or in Low Power Mode (otherwise it slows down 3×)": {
+    "Pause on battery and in Low Power Mode": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pause scanning on battery or in Low Power Mode (otherwise it slows down 3×)"
+            "value": "Pause on battery and in Low Power Mode"
           }
         }
       }
@@ -1311,22 +1521,42 @@
         }
       }
     },
-    "Ports": {
+    "Port Lists": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ports"
+            "value": "Port Lists"
           }
         }
       }
     },
-    "Ports is local only: no telemetry, no accounts. Every probe it makes is listed here; all are read-only.": {
+    "Port and stop events": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ports is local only: no telemetry, no accounts. Every probe it makes is listed here; all are read-only."
+            "value": "Port and stop events"
+          }
+        }
+      }
+    },
+    "Ports & Notifications": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ports & Notifications"
+          }
+        }
+      }
+    },
+    "Ports from": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ports from"
           }
         }
       }
@@ -1361,12 +1591,12 @@
         }
       }
     },
-    "Press keys…": {
+    "Press a shortcut…": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press keys…"
+            "value": "Press a shortcut…"
           }
         }
       }
@@ -1391,12 +1621,12 @@
         }
       }
     },
-    "Protected ports (type the number to stop)": {
+    "Protected": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Protected ports (type the number to stop)"
+            "value": "Protected"
           }
         }
       }
@@ -1461,6 +1691,16 @@
         }
       }
     },
+    "Quit Ports": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit Ports"
+          }
+        }
+      }
+    },
     "Reachable from your network": {
       "localizations": {
         "en": {
@@ -1491,26 +1731,6 @@
         }
       }
     },
-    "Refresh while closed": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Refresh while closed"
-          }
-        }
-      }
-    },
-    "Refresh while open": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Refresh while open"
-          }
-        }
-      }
-    },
     "Remove": {
       "localizations": {
         "en": {
@@ -1521,12 +1741,22 @@
         }
       }
     },
-    "Removes the login item, the CLI link, Ports's support folder, then moves the app to the Trash.": {
+    "Remove Ports from this Mac": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Removes the login item, the CLI link, Ports's support folder, then moves the app to the Trash."
+            "value": "Remove Ports from this Mac"
+          }
+        }
+      }
+    },
+    "Removes the login item, the CLI link and Ports's settings and history, then moves the app to the Trash.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removes the login item, the CLI link and Ports's settings and history, then moves the app to the Trash."
           }
         }
       }
@@ -1701,22 +1931,22 @@
         }
       }
     },
-    "Scanned": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scanned"
-          }
-        }
-      }
-    },
     "Scanning": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Scanning"
+          }
+        }
+      }
+    },
+    "Script or tool": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Script or tool"
           }
         }
       }
@@ -1731,12 +1961,12 @@
         }
       }
     },
-    "Search ports, processes, projects, branches…": {
+    "Search ports, processes, projects…": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search ports, processes, projects, branches…"
+            "value": "Search ports, processes, projects…"
           }
         }
       }
@@ -1771,12 +2001,12 @@
         }
       }
     },
-    "Show All Again": {
+    "Show All": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show All Again"
+            "value": "Show All"
           }
         }
       }
@@ -1851,22 +2081,12 @@
         }
       }
     },
-    "Socket path override (optional)": {
+    "Socket path": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Socket path override (optional)"
-          }
-        }
-      }
-    },
-    "Sort": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sort"
+            "value": "Socket path"
           }
         }
       }
@@ -1881,22 +2101,32 @@
         }
       }
     },
+    "Sort by": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sort by"
+          }
+        }
+      }
+    },
+    "Source code and issues on GitHub": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source code and issues on GitHub"
+          }
+        }
+      }
+    },
     "Star (Never Flag)": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Star (Never Flag)"
-          }
-        }
-      }
-    },
-    "Starred (never flagged)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Starred (never flagged)"
           }
         }
       }
@@ -1957,16 +2187,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Stop Container"
-          }
-        }
-      }
-    },
-    "Stop Selected": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stop Selected"
           }
         }
       }
@@ -2091,16 +2311,6 @@
         }
       }
     },
-    "Turn Off": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turn Off"
-          }
-        }
-      }
-    },
     "Type the port number to stop": {
       "localizations": {
         "en": {
@@ -2117,16 +2327,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Uninstall"
-          }
-        }
-      }
-    },
-    "Uninstall CLI": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uninstall CLI"
           }
         }
       }
@@ -2171,6 +2371,26 @@
         }
       }
     },
+    "Updated": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updated"
+          }
+        }
+      }
+    },
+    "Updates": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates"
+          }
+        }
+      }
+    },
     "Version": {
       "localizations": {
         "en": {
@@ -2191,22 +2411,22 @@
         }
       }
     },
-    "Watched ports (notify on start, stop, conflict)": {
+    "Watched": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Watched ports (notify on start, stop, conflict)"
+            "value": "Watched"
           }
         }
       }
     },
-    "Watched ports start, stop, or are taken by something else": {
+    "Watched ports start, stop or change owner": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Watched ports start, stop, or are taken by something else"
+            "value": "Watched ports start, stop or change owner"
           }
         }
       }
@@ -2251,12 +2471,32 @@
         }
       }
     },
-    "While closed Ports only scans sockets (no CPU sampling, no probes; containers at most every 15 s). Scanning pauses while the Mac sleeps or the screen is locked.": {
+    "While closed, Ports only reads sockets: no probes, no CPU sampling. Without the pause option, scanning slows to a third on battery. It always pauses while the Mac sleeps or the screen is locked.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "While closed Ports only scans sockets (no CPU sampling, no probes; containers at most every 15 s). Scanning pauses while the Mac sleeps or the screen is locked."
+            "value": "While closed, Ports only reads sockets: no probes, no CPU sampling. Without the pause option, scanning slows to a third on battery. It always pauses while the Mac sleeps or the screen is locked."
+          }
+        }
+      }
+    },
+    "While the panel is closed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While the panel is closed"
+          }
+        }
+      }
+    },
+    "While the panel is open": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While the panel is open"
           }
         }
       }
@@ -2271,22 +2511,22 @@
         }
       }
     },
+    "Works from any app. No Accessibility permission is needed.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Works from any app. No Accessibility permission is needed."
+          }
+        }
+      }
+    },
     "You asked to stop it less than 2 minutes ago. Force Quit (SIGKILL) ends it now.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "You asked to stop it less than 2 minutes ago. Force Quit (SIGKILL) ends it now."
-          }
-        }
-      }
-    },
-    "Your overrides (rename, move, link, note, flags)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your overrides (rename, move, link, note, flags)"
           }
         }
       }
@@ -2317,16 +2557,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "confident"
-          }
-        }
-      }
-    },
-    "contains…": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "contains…"
           }
         }
       }
@@ -2491,6 +2721,16 @@
         }
       }
     },
+    "ports command": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ports command"
+          }
+        }
+      }
+    },
     "processes are listening on port": {
       "localizations": {
         "en": {
@@ -2577,6 +2817,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "stopped"
+          }
+        }
+      }
+    },
+    "to": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "to"
           }
         }
       }

@@ -28,6 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     var dockerReachable: Bool?
     var settingsWindow: NSWindow?
     var outsideClicks: Any?
+    var closedByOutsideClick = Date.distantPast
+    var lastStatus: StatusSummary?
     var lastHistoryPrune = Date.distantPast
     let localhostIPv6First = localhostPrefersIPv6()
 
@@ -86,6 +88,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func renderStatus() {
         let s = statusSummary(model.listeners, analysis: model.analysis, settings: settings)
+        guard s != lastStatus else { return }          // no redraw (and no wake-up of the menu bar) when nothing changed
+        lastStatus = s
         status.button?.title = s.title
         status.button?.image = statusImage(dot: s.dot)
         status.button?.toolTip = s.tooltip
@@ -118,6 +122,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc func menuPause() { cadence.userPaused.toggle(); reschedule() }
 
     func togglePanel() {
+        // A click on the status item can also reach the outside-click monitor: don't reopen what it just closed.
+        if !popover.isShown && Date().timeIntervalSince(closedByOutsideClick) < 0.4 { return }
         if popover.isShown { popover.performClose(nil); return }
         guard let button = status.button else { return }
         NSApp.activate()
@@ -128,7 +134,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func popoverDidShow(_ notification: Notification) {
         outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            MainActor.assumeIsolated { self?.popover.performClose(nil) }
+            MainActor.assumeIsolated {
+                // Only a close that really happened may block the status item's own click from reopening it.
+                guard let self, self.popover.isShown else { return }
+                self.closedByOutsideClick = Date()
+                self.popover.performClose(nil)
+            }
         }
     }
 
@@ -166,7 +177,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         scanQueue.async {
             // One socket scan (CPU sampling only while open). Engines: every open scan; while closed at most once a
             // minute, or at once when the runtime's proxy listeners change.
-            var result = scan(docker: [:], sampleCPU: open)
+            // Closed: processes that listened on nothing are re-checked every 30 s, not every scan (energy).
+            var result = scan(docker: [:], sampleCPU: open, quietRecheck: open || full ? 0 : 30)
             let snap = ContainerDirectory.shared.current(listeners: result, maxAge: full || open ? 0 : 60)
             result = applyContainers(result, snap)
             result = DatabaseProbeCache.shared.apply(WebProbeCache.shared.apply(result, probe: open), probe: open)
@@ -287,9 +299,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc func openSettings() {
         popover.performClose(nil)
         if settingsWindow == nil {
-            let w = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(app: self)))
+            let w = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(app: self, ui: settingsUI)))
             w.title = Brand.displayName + " " + L("Settings")
-            w.styleMask = [.titled, .closable, .miniaturizable]
+            w.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+            w.titlebarAppearsTransparent = true
+            w.toolbarStyle = .unified
             w.isReleasedWhenClosed = false
             w.setFrameAutosaveName("PortsSettings")
             settingsWindow = w
