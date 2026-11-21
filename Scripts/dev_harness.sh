@@ -1,43 +1,52 @@
 #!/bin/zsh
-# Dev harness: starts throwaway listeners that exercise each Phase 1 fix, prints `ports list`,
+# Dev harness: starts throwaway listeners that exercise each phase's scenarios, prints `ports list`,
 # then waits so you can check the menu bar app by hand. Ctrl-C stops and cleans up everything.
 #
-#   ./Scripts/dev_harness.sh            # start scenarios, wait for Ctrl-C
-#   ./Scripts/dev_harness.sh --check    # start, print the table, clean up, exit
+#   ./Scripts/dev_harness.sh            # start scenarios, print the table, wait for Ctrl-C
+#   ./Scripts/dev_harness.sh --serve    # same, quieter; prints READY when every scenario listens (ui_smoke.sh)
+#   ./Scripts/dev_harness.sh --check    # start, assert every row of `ports list`, clean up, verify no
+#                                       # listener is left; exits non-zero on any mismatch
 #   PORT_BASE=48000 ./Scripts/dev_harness.sh
 #
-# Everything runs from a temp dir with python3 only; nothing outside it is touched.
+# Everything runs from a temp dir with python3 only; only processes this script starts are signalled.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+MODE=${1:-}
 BASE=${PORT_BASE:-47100}
-LAST=$((BASE+8))
+LAST=$((BASE+12))
+
+listening() { lsof -nP -iTCP:$BASE-$LAST -sTCP:LISTEN 2>/dev/null | tail -n +2; }
 
 # Refuse to start if any harness port is taken (an old harness run, or something of yours).
-if busy=$(lsof -nP -iTCP:$BASE-$LAST -sTCP:LISTEN 2>/dev/null | tail -n +2) && [[ -n "$busy" ]]; then
+if busy=$(listening) && [[ -n "$busy" ]]; then
   echo "dev_harness: ports $BASE–$LAST must be free, but these are listening:" >&2
   echo "$busy" >&2
   echo "Stop them (or use PORT_BASE=<other> $0) and try again." >&2
   exit 1
 fi
 
+command -v python3 >/dev/null || { echo "python3 is required"; exit 1; }
+swift build -q --product ports
+PORTS="$(swift build --show-bin-path)/ports"
+
 WORK=$(mktemp -d -t ports-harness)
 typeset -a PIDS
 # Only our own children: SIGCONT (a suspended one can't die cleanly otherwise), then SIGKILL, so even
-# the TERM-ignoring fake data store never survives. "No such process" is expected and ignored.
+# the TERM-ignoring fake data store never survives. Forked workers exit by themselves once their parent
+# is gone. "No such process" is expected and ignored.
 cleanup() {
   set +e
   for p in $PIDS; do kill -CONT $p 2>/dev/null; kill -KILL $p 2>/dev/null; done
   for p in $PIDS; do wait $p 2>/dev/null; done
+  PIDS=()
   rm -rf "$WORK"
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-command -v python3 >/dev/null || { echo "python3 is required"; exit 1; }
-
 cat > "$WORK/serve.py" <<'PY'
-import http.server, socket, ssl, sys
+import http.server, os, socket, ssl, sys, time
 mode, host, port = sys.argv[1], sys.argv[2], int(sys.argv[3])
 family = socket.AF_INET6 if ":" in host else socket.AF_INET
 if mode == "raw":                       # speaks, but not HTTP
@@ -56,6 +65,12 @@ class Quiet(http.server.BaseHTTPRequestHandler):
     do_GET = do_HEAD
     def log_message(self, *a): pass
 srv = Server((host, port), Quiet)
+if mode == "prefork":                   # master + 2 forked workers sharing the listening socket
+    master = os.getpid()
+    for _ in range(2):
+        if os.fork() == 0:
+            while os.getppid() == master: time.sleep(0.2)   # leave as soon as the master is gone
+            os._exit(0)
 if mode == "https":
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(sys.argv[4], sys.argv[5])
@@ -67,25 +82,49 @@ PY
 mkdir -p "$WORK/astro-dashboard"
 cp "$WORK/serve.py" "$WORK/astro-dashboard/app.py"
 
+# Synthetic projects (Phase 2): a git repo on a branch, a worktree of it, and a monorepo package.
+mkdir -p "$WORK/harness-web/.git/worktrees/wt" "$WORK/harness-wt" "$WORK/harness-mono/.git" "$WORK/harness-mono/apps/api"
+echo '{"name": "harness-web"}' > "$WORK/harness-web/package.json"
+echo 'ref: refs/heads/feature/demo' > "$WORK/harness-web/.git/HEAD"
+echo 'ref: refs/heads/wt-branch' > "$WORK/harness-web/.git/worktrees/wt/HEAD"
+echo 'gitdir: ../harness-web/.git/worktrees/wt' > "$WORK/harness-wt/.git"
+echo '{"name": "harness-wt"}' > "$WORK/harness-wt/package.json"
+echo '{"name": "harness-mono", "workspaces": ["apps/*"]}' > "$WORK/harness-mono/package.json"
+echo 'ref: refs/heads/main' > "$WORK/harness-mono/.git/HEAD"
+echo '{"name": "api"}' > "$WORK/harness-mono/apps/api/package.json"
+for d in harness-web harness-wt harness-mono/apps/api; do cp "$WORK/serve.py" "$WORK/$d/app.py"; done
+
 openssl req -x509 -newkey rsa:2048 -nodes -subj /CN=localhost -days 1 \
   -keyout "$WORK/key.pem" -out "$WORK/cert.pem" >/dev/null 2>&1
 
+cd "$WORK"     # scenarios run outside any real project, so labels come only from the synthetic ones
 LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
+typeset -a EXPECT_PORTS
 
+say() { [[ "$MODE" == "--serve" ]] || print -r -- "$@"; }
 start() {   # start <port> <expectation> <command…>
   local port=$1 what=$2; shift 2
   "$@" >>"$WORK/log" 2>&1 &
   PIDS+=$!
-  printf '  :%-6s %s\n' "$port" "$what"
+  EXPECT_PORTS+=$port
+  say "$(printf '  :%-6s %s' "$port" "$what")"
+}
+start_in() {  # start_in <dir> <port> <expectation> <command…>: same, with <dir> as working directory
+  local dir=$1; shift
+  local port=$1 what=$2; shift 2
+  (cd "$dir" && exec "$@") >>"$WORK/log" 2>&1 &
+  PIDS+=$!
+  EXPECT_PORTS+=$port
+  say "$(printf '  :%-6s %s' "$port" "$what")"
 }
 
-echo "Scenarios (temp dir removed on exit):"
+say "Scenarios (temp dir removed on exit):"
 start $((BASE+0)) "loopback HTTP: Local only (127.0.0.1 / ::1), Open in Browser http" \
   python3 "$WORK/serve.py" http 127.0.0.1 $((BASE+0))
 start $((BASE+1)) "all interfaces: LAN badge, 0.0.0.0 / ::" \
   python3 "$WORK/serve.py" http 0.0.0.0 $((BASE+1))
 if [[ -n "$LAN_IP" ]]; then
-  start $((BASE+2)) "specific LAN bind: LAN badge, shows $LAN_IP" \
+  start $((BASE+2)) "specific LAN bind: LAN badge, shows the LAN address" \
     python3 "$WORK/serve.py" http "$LAN_IP" $((BASE+2))
 fi
 start $((BASE+3)) "TLS server: Open in Browser uses https" \
@@ -104,16 +143,81 @@ start $((BASE+7)) "  (second owner)" \
   python3 "$WORK/serve.py" http ::1 $((BASE+7))
 start $((BASE+8)) "non-HTTP listener: no Open in Browser" \
   python3 "$WORK/serve.py" raw 127.0.0.1 $((BASE+8))
+start_in "$WORK/harness-web" $((BASE+9)) "project + branch: python3 · harness-web · feature/demo" \
+  python3 app.py http 127.0.0.1 $((BASE+9))
+start $((BASE+10)) "master + 2 forked workers: one row, ×3 workers" \
+  python3 "$WORK/serve.py" prefork 127.0.0.1 $((BASE+10))
+start_in "$WORK/harness-wt" $((BASE+11)) "git worktree: harness-wt · wt-branch" \
+  python3 app.py http 127.0.0.1 $((BASE+11))
+start_in "$WORK/harness-mono/apps/api" $((BASE+12)) "monorepo package: harness-mono › api · main" \
+  python3 app.py http 127.0.0.1 $((BASE+12))
 
-sleep 1.5
+# Wait until every scenario port listens (no fixed sleep), then suspend the Ctrl-Z scenario.
+want=${#${(u)EXPECT_PORTS}}
+up=0
+for _ in {1..300}; do
+  up=$(listening | awk '{ n = split($9, a, ":"); print a[n] }' | sort -u | wc -l | tr -d ' ')
+  (( up >= want )) && break
+  sleep 0.1
+done
+(( up >= want )) || { echo "dev_harness: only $up of $want scenario ports came up" >&2; cat "$WORK/log" >&2; exit 1; }
 kill -STOP "$STOPPED_PID"
 
-echo "\nports list (harness ports only):"
-swift run -q ports list | awk -v lo=$BASE -v hi=$((BASE+8)) '{ p = substr($1, 2) + 0 } p >= lo && p <= hi'
+TABLE=$("$PORTS" list | awk -v lo=$BASE -v hi=$LAST '{ p = substr($1, 2) + 0 } p >= lo && p <= hi')
 
-echo "\nAfter any stop, the app should report \"Port N is free\" or \"Still listening: …\"."
-echo "On this Mac, ControlCenter on :5000/:7000 (AirPlay Receiver) shows in the Developer view with an explanation."
+if [[ "$MODE" == "--check" ]]; then
+  errors=0
+  # expect <port> <text…>: the row for :port contains every text; "!text" must be absent.
+  expect() {
+    local port=$1; shift
+    local row
+    row=$(print -r -- "$TABLE" | grep -E "^:$port " | head -n 1) || true
+    if [[ -z "$row" ]]; then echo "  FAIL :$port missing"; errors=$((errors+1)); return; fi
+    for w in "$@"; do
+      if [[ "$w" == !* ]]; then
+        [[ "$row" != *"${w#!}"* ]] || { echo "  FAIL :$port has \"${w#!}\": $row"; errors=$((errors+1)); }
+      else
+        [[ "$row" == *"$w"* ]] || { echo "  FAIL :$port lacks \"$w\": $row"; errors=$((errors+1)); }
+      fi
+    done
+  }
+  rows() {    # rows <port> <n>: exactly n rows for :port
+    local n
+    n=$(print -r -- "$TABLE" | grep -cE "^:$1 ") || true
+    (( n == $2 )) || { echo "  FAIL :$1 has $n rows, expected $2"; errors=$((errors+1)); }
+  }
+  expect $((BASE+0)) "Backend" "python" "!LAN"
+  expect $((BASE+1)) "LAN"
+  if [[ -n "$LAN_IP" ]]; then expect $((BASE+2)) "LAN"; fi
+  expect $((BASE+3)) "python"
+  expect $((BASE+4)) "Backend" "python" "!astro" "!·"
+  expect $((BASE+5)) "STOPPED"
+  expect $((BASE+6)) "Databases" "redis-server"
+  rows $((BASE+7)) 2
+  expect $((BASE+8)) "python"
+  expect $((BASE+9)) "python · harness-web · feature/demo"
+  expect $((BASE+10)) "×3 workers"
+  rows $((BASE+10)) 1
+  expect $((BASE+11)) "harness-wt · wt-branch"
+  expect $((BASE+12)) "harness-mono › api · main"
 
-if [[ "${1:-}" == "--check" ]]; then exit 0; fi
-echo "\nOpen the Ports menu to check each row. Ctrl-C to stop the harness."
+  cleanup
+  for _ in {1..100}; do [[ -z "$(listening)" ]] && break; sleep 0.1; done
+  if left=$(listening) && [[ -n "$left" ]]; then
+    echo "  FAIL listeners left after cleanup:"; echo "$left"; errors=$((errors+1))
+  fi
+  if (( errors > 0 )); then
+    echo "\nports list (harness ports):"; print -r -- "$TABLE"
+    echo "dev_harness --check: $errors failure(s)"; exit 1
+  fi
+  echo "dev_harness --check: all scenarios as expected; no listeners left on $BASE–$LAST"
+  exit 0
+fi
+
+say "\nports list (harness ports only):"
+say "$TABLE"
+say "\nAfter any stop, the app should report \"Port N is free\" or \"Still listening: …\"."
+say "On this Mac, ControlCenter on :5000/:7000 (AirPlay Receiver) shows in the Developer view with an explanation."
+say "\nOpen the Ports menu to check each row. Ctrl-C to stop the harness."
+echo READY
 while true; do sleep 3600 & wait $!; done      # wait is interruptible, so the trap runs at once

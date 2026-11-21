@@ -7,7 +7,7 @@ marked `have` describe current behavior; numbered items are planned phases.
 
 - [x] TCP listeners with PID (have)
 - [x] IPv4/IPv6 listener discovery (have)
-- [ ] IPv4/IPv6 collapse (1)
+- [x] IPv4/IPv6 collapse (1)
 - [ ] UDP listeners (11)
 - [ ] Monitored ranges and excluded ports (10)
 - [ ] Bind probe for invisible owners (5)
@@ -22,7 +22,7 @@ marked `have` describe current behavior; numbered items are planned phases.
 - [x] Tool classification table (have)
 - [ ] Large data-driven framework table (3)
 - [ ] Confidence scores and safety tiers (3)
-- [ ] Project root, monorepo, and Git branch detection (2)
+- [x] Project root, monorepo, and Git branch detection incl. worktrees (2)
 - [ ] Launcher, editor, terminal, and coding-agent attribution (4)
 - [ ] Duplicate-instance detection (4)
 - [ ] User classification overrides (3)
@@ -32,12 +32,16 @@ marked `have` describe current behavior; numbered items are planned phases.
 
 - [x] Command line and working directory (have)
 - [x] PID identity and owner checks (have)
-- [ ] CPU, memory, uptime, parent, and connection metrics (2)
+- [x] CPU, memory, uptime, parent, and connection metrics (2)
+- [x] Launcher chain (parent → … → launchd), process group, controlling TTY (2)
+- [x] Multi-worker collapse into one row with a worker count (2)
+- [x] Environment names with secret values masked, CLI only (`ports list --env`) (2)
 - [ ] Process tree and supervisor-aware stopping (5)
 - [ ] Orphan verdicts and leftovers without ports (4)
 - [ ] Bulk cleanup with confirmation (4)
 - [ ] Health/Doctor section (4)
-- [ ] Copy start command and run in Terminal (5)
+- [x] Copy start command (2)
+- [ ] Run in Terminal (5)
 
 ## Containers and databases
 
