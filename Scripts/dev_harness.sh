@@ -268,6 +268,11 @@ if [[ "$MODE" == "--check" ]]; then
   expect $((BASE+9)) "TWICE" "!ORPHAN"
   expect $((BASE+15)) "TWICE" "!ORPHAN"
   if (( WITH_LAUNCHD )); then expect $((BASE+16)) "!ORPHAN"; fi
+  # Phase 5: the bind probe agrees with the table, and next-free skips taken ports.
+  "$PORTS" preflight $((BASE+0)) >/dev/null && { echo "  FAIL preflight :$((BASE+0)) said free"; errors=$((errors+1)); }
+  free=$("$PORTS" next-free --from $((BASE+0))) || free=""
+  [[ -n "$free" ]] && (( free > BASE + 1 )) && ! print -r -- "$TABLE" | grep -qE "^:$free " \
+    || { echo "  FAIL next-free --from $((BASE+0)) gave '$free'"; errors=$((errors+1)); }
   for b in 0 1 3 4 6 8 10 11 12 13; do expect $((BASE+b)) "!ORPHAN"; done
   tsc_pid=$(<"$WORK/tsc.pid")
   print -r -- "$FULL" | grep -qE "^  PID $tsc_pid  tsc  ORPHAN" \

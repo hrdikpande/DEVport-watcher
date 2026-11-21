@@ -2,11 +2,12 @@
 // minimal environment, timeout.
 import Foundation
 
-public func run(_ path: String, _ args: [String], timeout: TimeInterval = 3) -> (out: String, ok: Bool) {
+/// `pathPrefix`: extra folders searched first (e.g. the tool's own bin folder, so a node-based CLI finds node).
+public func run(_ path: String, _ args: [String], timeout: TimeInterval = 3, pathPrefix: [String] = []) -> (out: String, ok: Bool) {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: path)
     p.arguments = args                                            // argv array: no shell, no injection
-    p.environment = ["HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+    p.environment = ["HOME": home, "PATH": (pathPrefix + ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]).joined(separator: ":")]
     let pipe = Pipe()
     p.standardOutput = pipe
     p.standardError = pipe

@@ -8,6 +8,39 @@ All notable changes to this project will be documented here.
 - Added characterization tests and CI.
 - Added initial open-source governance documentation.
 
+### Phase 5 — stopping, supervisors and lifecycle
+- PortsCore is split into the spec's folders: Model, Scan, Detect, Docker,
+  Actions, Web, Store.
+- Stop goes through whatever supervises the process. Every confirmation
+  states what stops, how, whether it restarts automatically, and whether the
+  change persists after the next login.
+  - brew services: Stop Until Next Login (`brew services kill`) or Stop and
+    Disable (`brew services stop`).
+  - Your LaunchAgents: `launchctl bootout gui/<uid>/<label>`. Apple's jobs
+    are refused.
+  - pm2: `pm2 stop <id>`.
+  - nodemon: the watcher and its children are stopped, so nothing respawns.
+  - Containers: `docker stop`.
+  - Apps: quit like ⌘Q.
+  - System processes that launchd restarts: an explanation instead of Kill.
+- Stop Process and Its Children / Stop All Workers. A process holding several
+  ports lists the ports it frees.
+- Stop Several…: one confirmation for checked rows, each with its exact
+  signals.
+- Pause / Resume (SIGSTOP / SIGCONT), with a PAUSED badge for processes Ports
+  paused.
+- Protect Port: stopping a protected port needs its number typed in.
+- A second Stop of the same process within 2 minutes offers Force Quit at
+  once.
+- Check Port… and `ports preflight <port>`: a bind probe on 127.0.0.1, ::1 and
+  0.0.0.0. When no visible process holds the port, it says a process macOS
+  doesn't expose holds it. Find Free Port… and `ports next-free [--from N]`.
+- Run Start Command in Terminal opens a visible Terminal window, never a
+  hidden process. There is no in-app restart.
+- Settings store (`settings.json`, tolerant of older files).
+- Fixed: the web-probe answer tests could time out under parallel load. They
+  now use a test-only budget; the 0.8 s production budget is still tested.
+
 ### Phase 4 — orphans, coding agents, duplicates, doctor
 - "Started by": the first meaningful ancestor, from a data table of coding
   agents (Claude Code, Cursor agent, Codex, Gemini, Aider, Antigravity,

@@ -62,9 +62,10 @@ public func isWebCandidate(_ l: Listener) -> Bool {
 public let webProbeBudget: TimeInterval = 0.8             // whole probe of one listener, all attempts included
 
 /// Plain HTTP first; if the server says nothing, try a TLS hello. Loopback only, within `webProbeBudget`.
-public func probeWeb(_ l: Listener) -> WebScheme? {
+/// `budget` is injectable for tests whose test server may answer slowly under load; production uses the default.
+public func probeWeb(_ l: Listener, budget: TimeInterval = webProbeBudget) -> WebScheme? {
     guard isWebCandidate(l) else { return nil }
-    let deadline = Date().addingTimeInterval(webProbeBudget)
+    let deadline = Date().addingTimeInterval(budget)
     for host in ["127.0.0.1", "::1"] {
         guard let reply = exchange(host: host, port: l.port, payload: httpProbe, deadline: deadline) else { continue }
         if let scheme = webScheme(fromReply: reply) { return scheme }

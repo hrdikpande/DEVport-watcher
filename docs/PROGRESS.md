@@ -5,12 +5,19 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 
 ## Current state
 
-- **Phase 2:** done. Branch `phase-2`, draft PR #5 → main, CI green.
-- **Phase 3:** done. Branch `phase-3`, draft PR #6 → phase-2, CI green.
-- **Phase 4:** done. Branch `phase-4`, draft PR #7 → phase-3, CI green. All local gates pass except one
-  manual gate (below).
-- **Next step:** owner review. Phase 5 starts from `phase-4`; its FIRST commit splits `PortsCore.swift`
-  (owner's rule 6). The owner asked me to stop after the Phase 4 PR.
+- **Branch:** `release-1`, local only. No pushes, PRs or CI (owner's rules for Phases 5–12). One commit per
+  phase, "phase-N: <summary>". Phase 5 also has a first commit that splits PortsCore.swift.
+- **Done:** Phases 2–4 (merged into release-1) and Phase 5.
+- **Next step:** Phase 6 (containers via the Engine API over unix sockets).
+- **Gate runner:** `./Scripts/check.sh`, which runs every gate and marks the LaunchAgent scenario "manual".
+
+## Owner actions
+
+- Run `./Scripts/dev_harness.sh --with-launchd --check` (the agent may not register LaunchAgents) and report the
+  result. Gate status: manual.
+- Memory gate: the production criterion says "RSS < 40 MB". The app's raw RSS is 62–64 MB, and its physical
+  footprint (Activity Monitor "Memory") is 20–22 MB. Most of the RSS is AppKit's shared framework pages. Decide
+  whether footprint is the measure; I'm also looking for RSS savings in Phase 10.
 
 ## Decisions
 
@@ -27,6 +34,7 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 | 2     | 0 warnings    | 0 warnings  | 78/78 ×5      | pass      | pass (13 ports, 0 left) | pass | 2.0–6.7 ms (579 procs) | footprint 17.5 MB (RSS 56 MB) | n/a | pass (#5) |
 | 3     | 0 warnings    | 0 warnings  | 94/94 ×5 (130 matcher cases) | pass | pass (14 ports + AirPlay explainer, 0 left) | pass | 2.9–3.7 ms (627 procs) | footprint 19.2 MB (RSS 60 MB) | n/a | pass (#6) |
 | 4     | 0 warnings    | 0 warnings  | 111/111 ×5; flake hunt 20/20 clean | pass | pass (16 ports + orphan, duplicate, leftover; 0 left) | pass | ≤ 4.6 ms | footprint 20.8 MB (RSS 62 MB) | n/a | pass (#7) |
+| 5     | 0 warnings    | 0 warnings  | 125/125 ×5; 30 more runs clean after the probe-budget fix | pass | pass (+ preflight/next-free) | pass | ≤ 4.6 ms | footprint 22.1 MB (RSS 64 MB) | n/a | local only |
 
 Phase 4 manual gate: **`dev_harness.sh --with-launchd --check` is manual. The owner runs it.** It is not
 "passed" until the owner reports it. Launchd-job exclusion is unit-tested with `launchctl list` fixtures.

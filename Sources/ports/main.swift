@@ -2,6 +2,26 @@ import Foundation
 import PortsCore
 
 var arguments = Array(CommandLine.arguments.dropFirst())
+
+// `ports preflight <port>`: exit 0 when free (bind probe included), 1 when taken.
+// `ports next-free [--from N]`: print the first free port at or above N (default 3000).
+// shortcut: hand-parsed until the Phase 11 swift-argument-parser CLI replaces it.
+if arguments.first == "preflight" {
+    guard arguments.count == 2, let port = Int(arguments[1]), (1...65535).contains(port) else {
+        fputs("Usage: ports preflight <port>\n", stderr); exit(64)
+    }
+    let check = checkPort(port, listeners: scanWithContainers())
+    print(check.message)
+    exit(check.free ? 0 : 1)
+}
+if arguments.first == "next-free" {
+    var from = 3000
+    if arguments.count == 3, arguments[1] == "--from", let f = Int(arguments[2]), (1...65535).contains(f) { from = f }
+    else if arguments.count != 1 { fputs("Usage: ports next-free [--from N]\n", stderr); exit(64) }
+    guard let p = nextFreePort(from: from, listeners: scanWithContainers()) else { fputs("No free port near \(from)\n", stderr); exit(1) }
+    print(p)
+    exit(0)
+}
 if arguments.first == "list" || arguments.first == "--list" { arguments.removeFirst() }
 let flags = Set(arguments)
 

@@ -129,3 +129,20 @@ New Phase 1 tests live in `Tests/PortsCoreTests/Phase1Tests.swift`.
 - The `--with-launchd` harness scenario is owner-run only. The auto-mode
   classifier blocks the agent from registering LaunchAgents.
 
+## Found during Phase 5
+
+- launchd jobs are found from `launchctl list` (pid → label), not by matching
+  plists. `~/Library/LaunchAgents` is read only to say whether a job loads
+  again at login and whether it has KeepAlive.
+- pm2 is a node script, so `Exec.run` takes a `pathPrefix` (the tool's own
+  folder) for it to find node. The rest of the environment stays minimal.
+- Multi-select is a checkbox dialog in the NSMenu UI. The Phase 10 panel does
+  row multi-select.
+- `ports preflight` and `ports next-free` are hand-parsed until the Phase 11
+  argument-parser CLI.
+- Existing test changed: Phase 1 `WebProbeTests.probe(_:)` passes
+  `budget: 5`. Its test server answers from a background thread that can be
+  slow under parallel load (it flaked about 1 run in 30). The 0.8 s budget is
+  still asserted by "A server that never answers costs about the probe
+  budget".
+

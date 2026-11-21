@@ -21,14 +21,16 @@ touch Sources/*/*.swift Tests/PortsCoreTests/*.swift
 n=$(swift build --build-tests 2>&1 | warnings)
 (( n == 0 )) && report "swift build --build-tests" "pass (0 warnings)" || report "swift build --build-tests" "FAIL ($n warnings/errors)"
 
-runs=() ok=1
+runs=() ok=1 fails=""
 for i in 1 2 3 4 5; do
-  line=$(swift test 2>&1 | grep -E 'Test run with')
+  out=$(swift test 2>&1)
+  line=$(print -r -- "$out" | grep -E 'Test run with')
+  [[ "$line" == *passed* ]] || fails+=$(print -r -- "$out" | grep -E 'recorded an issue|↳' | grep -v -E 'Target Platform|Testing Library')$'\n'
   runs+="$line"
   [[ "$line" == *passed* ]] || ok=0
 done
 count=$(print -r -- "${runs[1]}" | sed -E 's/.*with ([0-9]+) tests.*/\1/')
-(( ok )) && report "swift test ×5" "pass ($count tests each)" || { report "swift test ×5" "FAIL"; print -rl -- $runs; }
+(( ok )) && report "swift test ×5" "pass ($count tests each)" || { report "swift test ×5" "FAIL"; print -rl -- $runs; print -r -- "$fails"; }
 
 if (( QUICK )); then exit $failed; fi
 
