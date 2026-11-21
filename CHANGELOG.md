@@ -8,6 +8,25 @@ All notable changes to this project will be documented here.
 - Added characterization tests and CI.
 - Added initial open-source governance documentation.
 
+### Phase 9 — web probing (lightweight)
+- Rows read "200 · 34 ms · My App". The probe is one `GET /` after the
+  scheme check: plain HTTP over a loopback socket, HTTPS through
+  Network.framework (self-signed certificates accepted for this probe only).
+  It records the status code, response time, `Server` header and `<title>`
+  (first 64 KB, entities decoded).
+- Probe rules: only while the menu is open (or `ports list --probe`), only on
+  loopback, 0.8 s per listener, at most 4 at once, re-probed after 30 s.
+  Never against databases, tunnels or LAN-only binds.
+- JSON API badge for JSON responses.
+- Copy URL and Copy host:port.
+- Network-reachable servers get Copy LAN URL (the Mac's current LAN IP) and
+  Show QR Code for Phone (CoreImage). Loopback-only servers get the flag that
+  exposes them: `vite --host`, `next dev -H 0.0.0.0`, `runserver 0.0.0.0:8000`
+  and the like.
+- Search the Web for This Port opens a search with the port and process name
+  only, never paths or arguments.
+- No thumbnails or rendered previews (non-goal).
+
 ### Phase 8 — tunnels and forwards (display only)
 - `ssh -L/-R/-D` are parsed, including the glued (`-L8080:h:80`), bind address
   and IPv6 forms. Forward rows read "Forward → db:5432 via bastion" or "SOCKS

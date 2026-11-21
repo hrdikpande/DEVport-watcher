@@ -7,8 +7,9 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 
 - **Branch:** `release-1`, local only. No pushes, PRs or CI (owner's rules for Phases 5–12). One commit per
   phase, "phase-N: <summary>". Phase 5 also has a first commit that splits PortsCore.swift.
-- **Done:** Phases 2–4 (merged into release-1), 5, 6, 7 and 8.
-- **Next step:** Phase 9 (web probe polish: status/time/title, JSON badge, Copy URL/host:port/LAN URL, QR, web search).
+- **Done:** Phases 2–4 (merged into release-1), 5, 6, 7, 8 and 9.
+- **Next step:** Phase 10 (NSPopover + SwiftUI panel, organise, notifications, history, Settings window, hot key,
+  energy behaviour, accessibility). It is the biggest phase: do it in sub-steps, each building and passing tests.
 - **Gate runner:** `./Scripts/check.sh`, which runs every gate and marks the LaunchAgent scenario "manual".
 
 ## Owner actions
@@ -38,6 +39,7 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 | 6     | 0 warnings    | 0 warnings  | 139/139 ×5 | pass | pass (+ fake engine + proxy: container label) | pass | ≤ 4.4 ms | footprint 22.1 MB (RSS 64 MB) | n/a | local only |
 | 7     | 0 warnings    | 0 warnings  | 152/152 ×5 | pass | pass (+ handshake DB, exposed DB) | pass | ≤ 4.7 ms | footprint 24.2 MB (RSS 67 MB) | n/a | local only |
 | 8     | 0 warnings    | 0 warnings  | 160/160 ×5 | pass | pass (+ ssh -L, kubectl, ngrok public URL) | pass | ≤ 4.9 ms | footprint 23.6 MB (RSS 66 MB) | n/a | local only |
+| 9     | 0 warnings    | 0 warnings  | 170/170 ×5 | pass | pass (+ title page, JSON API, HTTPS 200) | pass | ≤ 5.1 ms | footprint 25.7 MB (RSS 69 MB) | n/a | local only |
 
 Phase 4 manual gate: **`dev_harness.sh --with-launchd --check` is manual. The owner runs it.** It is not
 "passed" until the owner reports it. Launchd-job exclusion is unit-tested with `launchctl list` fixtures.

@@ -6,6 +6,16 @@ import Foundation
 public struct HTTPResponse: Equatable, Sendable {
     public let status: Int
     public let body: Data
+    public var head: String = ""            // status line + headers
+    public init(status: Int, body: Data, head: String = "") { self.status = status; self.body = body; self.head = head }
+    /// A header value (case-insensitive name).
+    public func header(_ name: String) -> String? {
+        for line in head.components(separatedBy: "\r\n").dropFirst() {
+            guard let c = line.firstIndex(of: ":") else { continue }
+            if line[..<c].caseInsensitiveCompare(name) == .orderedSame { return line[line.index(after: c)...].trimmingCharacters(in: .whitespaces) }
+        }
+        return nil
+    }
 }
 
 /// Parse a complete HTTP/1.x response (Content-Length, chunked, or read-to-close).
@@ -38,7 +48,7 @@ public func parseHTTPResponse(_ raw: Data) -> HTTPResponse? {
         guard body.count >= len else { return nil }
         body = body.prefix(len)
     }
-    return HTTPResponse(status: status, body: body)
+    return HTTPResponse(status: status, body: body, head: head)
 }
 
 /// One request over a unix socket with `Connection: close`; nil on any failure or timeout.
@@ -72,7 +82,9 @@ public func unixHTTP(socket path: String, method: String = "GET", path request: 
 }
 
 /// Send one request on a connected non-blocking socket and read the response (8 MB cap) before `deadline`.
-func exchangeHTTP(fd: Int32, method: String, path request: String, host: String, deadline: Date) -> HTTPResponse? {
+/// With `maxBytes`, stop reading there and return the head plus the body prefix read so far.
+func exchangeHTTP(fd: Int32, method: String, path request: String, host: String, deadline: Date,
+                  maxBytes: Int = 8_000_000) -> HTTPResponse? {
     func ms() -> Int32 { Int32(max(0, deadline.timeIntervalSinceNow) * 1000) }
     let req = Array("\(method) \(request) HTTP/1.1\r\nHost: \(host)\r\nUser-Agent: \(Brand.displayName)\r\nAccept: application/json\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
     var sent = 0
@@ -84,7 +96,7 @@ func exchangeHTTP(fd: Int32, method: String, path request: String, host: String,
         sent += n
     }
     var data = Data(), buf = [UInt8](repeating: 0, count: 65536)
-    while data.count < 8_000_000 {
+    while data.count < maxBytes {
         if let done = completeResponse(data) { return done }
         var p = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
         guard poll(&p, 1, ms()) == 1 else { return nil }
@@ -92,7 +104,16 @@ func exchangeHTTP(fd: Int32, method: String, path request: String, host: String,
         if n <= 0 { return parseHTTPResponse(data) }      // closed: a close-delimited body ends here
         data.append(contentsOf: buf.prefix(n))
     }
-    return nil
+    return maxBytes < 8_000_000 ? parseHTTPHead(data) : nil
+}
+
+/// Head and whatever body arrived, ignoring Content-Length (for capped reads).
+func parseHTTPHead(_ raw: Data) -> HTTPResponse? {
+    guard let sep = raw.range(of: Data("\r\n\r\n".utf8)) else { return nil }
+    let first = String(decoding: raw[..<sep.lowerBound], as: UTF8.self).components(separatedBy: "\r\n").first ?? ""
+    let parts = first.split(separator: " ")
+    guard parts.count >= 2, parts[0].hasPrefix("HTTP/1."), let status = Int(parts[1]) else { return nil }
+    return HTTPResponse(status: status, body: Data(raw[sep.upperBound...]), head: String(decoding: raw[..<sep.lowerBound], as: UTF8.self))
 }
 
 /// One GET to 127.0.0.1:<port> (loopback only, never another machine); nil on failure or timeout.

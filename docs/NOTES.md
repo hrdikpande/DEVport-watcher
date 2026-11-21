@@ -186,3 +186,13 @@ New Phase 1 tests live in `Tests/PortsCoreTests/Phase1Tests.swift`.
 - The loopback HTTP client shares its request code with the unix-socket
   Engine client. It only connects to 127.0.0.1.
 
+## Found during Phase 9
+
+- Settled the Phase 1 question: servers bound only to a LAN IP are never
+  probed. They get Copy LAN URL and QR instead (amendment 5).
+- The app's WebCache moved into PortsCore as WebProbeCache, so the app and the
+  CLI share one probe and one cache policy.
+- The TLS probe can't be unit-tested without a certificate identity, so the
+  harness covers it (python TLS server: HTTPS · 200). The unit test covers a
+  TLS GET to a plain server failing within its deadline.
+

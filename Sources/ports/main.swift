@@ -37,7 +37,7 @@ let store = OverrideStore()
 // --probe: the same read-only loopback probes the open menu runs (HTTP/TLS first, then database handshakes).
 var scanned = scanWithContainers()
 if flags.contains("--probe") {
-    scanned = scanned.map { var l = $0; l.web = probeWeb($0); return l }
+    scanned = WebProbeCache().apply(scanned, probe: true)
     scanned = DatabaseProbeCache().apply(scanned, probe: true)
 }
 scanned = TunnelProbeCache().apply(scanned, probe: flags.contains("--probe"), reverse: reverseForwards(sshArgvs()))
@@ -50,6 +50,11 @@ for l in listeners where l.override?.hidden != true {
     if let v = analysis.verdict(l), v.level >= .likely { badges += v.level == .confirmed ? "  ORPHAN" : "  ORPHAN?" }
     if analysis.isDuplicate(l) { badges += "  TWICE" }
     if let (db, _) = knownDatabase(l) { badges += "  DB:\(db.rawValue)" + (l.exposed ? "  NETWORK" : "") }
+    if let w = l.webInfo {
+        if !w.summary.isEmpty { badges += "  " + w.summary }
+        if w.isJSON { badges += "  JSON" }
+        if w.scheme == .https { badges += "  HTTPS" }
+    }
     if let url = l.tunnel?.publicURL { badges += "  PUBLIC \(url)" }
     if let via = l.exposedVia { badges += "  EXPOSED " + via }
     print(listRow(l) + badges)

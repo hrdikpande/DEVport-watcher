@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 import Darwin
 import PortsCore
 
@@ -32,29 +33,6 @@ func wrap(_ text: String, _ width: Int) -> [String] {
         line += (line.isEmpty ? "" : " ") + word
     }
     return line.isEmpty ? lines : lines + [line]
-}
-
-/// Web-probe results per process instance (pid + start time + port), shared with the scan queue.
-final class WebCache: @unchecked Sendable {
-    private let lock = NSLock()
-    private var known: [String: WebScheme?] = [:]
-
-    /// Fill `web` from the cache; with `probe`, probe candidates not seen before (in parallel).
-    func apply(_ ls: [Listener], probe: Bool) -> [Listener] {
-        func key(_ l: Listener) -> String { "\(l.pid)-\(l.start)-\(l.port)" }
-        if probe {
-            lock.lock(); let todo = ls.filter { isWebCandidate($0) && known[key($0)] == nil }; lock.unlock()
-            var found = [WebScheme?](repeating: nil, count: todo.count)
-            found.withUnsafeMutableBufferPointer { out in
-                DispatchQueue.concurrentPerform(iterations: todo.count) { out[$0] = probeWeb(todo[$0]) }
-            }
-            lock.lock(); for (l, w) in zip(todo, found) { known[key(l)] = .some(w) }; lock.unlock()
-        }
-        lock.lock(); defer { lock.unlock() }
-        let live = Set(ls.map(key))
-        known = known.filter { live.contains($0.key) }      // forget exited processes (bounded memory)
-        return ls.map { var l = $0; l.web = known[key($0)] ?? nil; return l }
-    }
 }
 
 func copyToPasteboard(_ text: String) {
@@ -108,7 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let scanQueue = DispatchQueue(label: "local.portwatch.scan", qos: .userInitiated)
     var listeners: [Listener] = []
     var docker: [Int: String] = [:]
-    let web = WebCache()
+    let web = WebProbeCache.shared
     let stops = StopRegistry()
     let settingsStore = SettingsStore()
     var pausedByUs = Set<String>()                       // processKey of processes Ports paused
@@ -321,6 +299,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             text.append(NSAttributedString(string: "  TWICE", attributes: [
                 .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemBlue]))
         }
+        if let w = l.webInfo {
+            if w.isJSON {
+                text.append(NSAttributedString(string: "  JSON API", attributes: [
+                    .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemIndigo]))
+            }
+            if !w.summary.isEmpty {
+                text.append(NSAttributedString(string: "  " + w.summary, attributes: [
+                    .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]))
+            }
+        }
         if l.exposedVia != nil || l.tunnel?.publicURL != nil {
             text.append(NSAttributedString(string: "  PUBLIC", attributes: [
                 .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemPink]))
@@ -363,6 +351,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if let scheme = l.web, let url = browserURL(l, scheme) {
             sub.addItem(ActionItem("Open in Browser", symbol: "safari", key: "") { NSWorkspace.shared.open(url) })
+            sub.addItem(ActionItem("Copy URL", symbol: "link", key: "") { copyToPasteboard(url.absoluteString) })
+        }
+        if l.port > 0 {
+            sub.addItem(ActionItem("Copy “\(hostPort(l))”", symbol: "doc.on.doc", key: "") { copyToPasteboard(hostPort(l)) })
+        }
+        if l.web != nil || l.baseKind == .frontend || l.baseKind == .backend {
+            if let lan = lanURL(l) {
+                sub.addItem(ActionItem("Copy LAN URL (\(lan.absoluteString))", symbol: "wifi", key: "") { copyToPasteboard(lan.absoluteString) })
+                sub.addItem(ActionItem("Show QR Code for Phone…", symbol: "qrcode", key: "") { [weak self] in self?.showQR(lan) })
+            } else if l.exposure == .loopback {
+                for (i, w) in wrap(exposeHint(l), 70).enumerated() { sub.addItem(infoItem(w, symbol: i == 0 ? "iphone" : nil)) }
+            }
+        }
+        if l.framework == nil || l.kind == .system || l.kind == .service, let search = webSearchURL(l) {
+            sub.addItem(ActionItem("Search the Web for This Port", symbol: "magnifyingglass", key: "") { NSWorkspace.shared.open(search) })
         }
         if !l.cwd.isEmpty && l.cwd != "/" {
             sub.addItem(ActionItem("Show Folder in Finder", symbol: "folder", key: "") {
@@ -562,6 +565,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if let via = l.exposedVia, l.publicURL == nil { items.append(infoItem(via, symbol: "globe")) }
         return items
+    }
+
+    /// A QR code of the LAN URL (CoreImage), for opening the dev server on a phone.
+    func showQR(_ url: URL) {
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return }
+        filter.setValue(Data(url.absoluteString.utf8), forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let ci = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)) else { return }
+        let rep = NSCIImageRep(ciImage: ci)
+        let image = NSImage(size: rep.size)
+        image.addRepresentation(rep)
+        NSApp.activate()
+        let a = NSAlert()
+        a.messageText = "Scan to open on a phone"
+        a.informativeText = url.absoluteString + "\nThe phone must be on the same network."
+        let view = NSImageView(frame: NSRect(x: 0, y: 0, width: 240, height: 240))
+        view.image = image
+        view.imageScaling = .scaleProportionallyUpOrDown
+        view.setAccessibilityLabel("QR code for \(url.absoluteString)")
+        a.accessoryView = view
+        a.addButton(withTitle: "Done")
+        a.runModal()
     }
 
     func appTitle(_ path: String) -> String { ((path as NSString).lastPathComponent as NSString).deletingPathExtension }

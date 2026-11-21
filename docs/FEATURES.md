@@ -94,15 +94,15 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 
 ## Network
 - [x] Real bind address and exposure [1]
-- [ ] LAN URL + QR [9]
+- [x] LAN URL + QR [9]
 - [x] localhost / ::1 mismatch diagnosis [4]
 
 ## Web
-- [ ] Open in browser with the right scheme [1, 9]
-- [ ] Copy URL / host:port [9]
-- [ ] HTTP status, time, title [9]
-- [ ] JSON API badge [9]
-- [ ] Web search for an unknown port [9]
+- [x] Open in browser with the right scheme [1, 9]
+- [x] Copy URL / host:port [9]
+- [x] HTTP status, time, title [9]
+- [x] JSON API badge [9]
+- [x] Web search for an unknown port [9]
 
 ## Interface
 - [ ] Status item count + issue dot [10]

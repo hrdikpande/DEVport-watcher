@@ -103,6 +103,8 @@ check_menu() {
   expect $((BASE+6)) "DB"
   expect $((BASE+18)) "DB"
   expect $((BASE+19)) "DB" "NETWORK"
+  expect $((BASE+23)) "Harness & Page"
+  expect $((BASE+24)) "JSON API"
   # Phase 4: the Health section and Leftovers appear in the menu.
   for want in "Health ·" "Leftovers ·" "Clean Up Leftovers…" "Copy Setup Prompt for AI"; do
     print -r -- "$items" | grep -qF "$want" || { report+="  menu lacks \"$want\"\n"; errors=$((errors+1)); }

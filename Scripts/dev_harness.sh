@@ -28,7 +28,7 @@ if (( WITH_LAUNCHD )) && [[ -n "${CI:-}" ]]; then echo "dev_harness: --with-laun
 LAUNCHD_PREFIX="io.github.hrdikpande.ports.harness."
 LABEL=""
 BASE=${PORT_BASE:-47100}
-LAST=$((BASE + 22))
+LAST=$((BASE + 24))
 
 listening() { lsof -nP -iTCP:$BASE-$LAST -sTCP:LISTEN 2>/dev/null | tail -n +2; }
 
@@ -77,10 +77,17 @@ class Server(http.server.ThreadingHTTPServer):
     address_family = family
     allow_reuse_address = True
 # Fixed reply, no filesystem access: some scenarios listen on the LAN, so never serve files.
+# Phase 9: "title" and "json" modes answer GET with a fixed page / fixed JSON (still no filesystem access).
+FIXED = {"title": ("text/html", b"<html><head><title>Harness &amp; Page</title></head><body>hi</body></html>"),
+         "json": ("application/json", b'{"ok": true}')}
 class Quiet(http.server.BaseHTTPRequestHandler):
     def do_HEAD(self):
         self.send_response(200); self.send_header("Content-Length", "0"); self.end_headers()
-    do_GET = do_HEAD
+    def do_GET(self):
+        if mode not in FIXED: return self.do_HEAD()
+        ctype, body = FIXED[mode]
+        self.send_response(200); self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
     def log_message(self, *a): pass
 srv = Server((host, port), Quiet)
 if mode == "prefork":                   # master + 2 forked workers sharing the listening socket
@@ -89,6 +96,7 @@ if mode == "prefork":                   # master + 2 forked workers sharing the 
         if os.fork() == 0:
             while os.getppid() == master: time.sleep(0.2)   # leave as soon as the master is gone
             os._exit(0)
+if mode in FIXED: pass
 if mode == "https":
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(sys.argv[4], sys.argv[5])
@@ -287,6 +295,10 @@ start $((BASE+18)) "unknown server answering the PostgreSQL handshake: DB:postgr
 start $((BASE+19)) "postgres on all interfaces: DB:postgres NETWORK" \
   zsh -c "exec -a postgres /usr/bin/nc -lk 0.0.0.0 $((BASE+19))"
 
+# Phase 9: a page with a <title> and a JSON API (fixed replies), for status · time · title and the JSON badge.
+start $((BASE+23)) "HTML page: 200 · N ms · Harness & Page" python3 "$WORK/serve.py" title 127.0.0.1 $((BASE+23))
+start $((BASE+24)) "JSON API: JSON badge" python3 "$WORK/serve.py" json 127.0.0.1 $((BASE+24))
+
 # Wait until every scenario port listens (no fixed sleep), then suspend the Ctrl-Z scenario.
 want=${#${(u)EXPECT_PORTS}}
 up=0
@@ -326,7 +338,7 @@ if [[ "$MODE" == "--check" ]]; then
   expect $((BASE+1)) "LAN"
   if [[ -n "$LAN_IP" ]]; then expect $((BASE+2)) "LAN"; fi
   expect $((BASE+3)) "python"
-  expect $((BASE+4)) "Backend" "python" "!astro" "!·"
+  expect $((BASE+4)) "Backend" "python" "!astro" "!python ·"
   expect $((BASE+5)) "STOPPED"
   expect $((BASE+6)) "Databases" "Redis"
   rows $((BASE+7)) 2
@@ -348,6 +360,9 @@ if [[ "$MODE" == "--check" ]]; then
   expect $((BASE+20)) "Tunnels" "Forward → db.internal:5432 via bastion.example"
   expect $((BASE+21)) "Tunnels" "k8s · shop/svc/web $((BASE+21))→80"
   expect $((BASE+22)) "Tunnels" "ngrok agent" "PUBLIC https://harness.ngrok.example"
+  expect $((BASE+23)) "200 · " " ms · Harness & Page" "!JSON"
+  expect $((BASE+24)) "200 · " "JSON"
+  expect $((BASE+3)) "HTTPS" "200"
   if (( WITH_LAUNCHD )); then expect $((BASE+16)) "!ORPHAN"; fi
   # Phase 5: the bind probe agrees with the table, and next-free skips taken ports.
   "$PORTS" preflight $((BASE+0)) >/dev/null && { echo "  FAIL preflight :$((BASE+0)) said free"; errors=$((errors+1)); }
