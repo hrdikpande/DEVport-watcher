@@ -51,24 +51,50 @@ sleep 10
 kill -0 "$APP_PID" 2>/dev/null || fail "app exited within 10 s"
 echo "ui_smoke: app alive after 10 s (pid $APP_PID)"
 
-# Clicking a status item blocks AppleScript until the menu closes, so click without waiting,
-# read the open menu in a second call, then close it with Escape.
+# Open the panel (a popover) by clicking the status item, then read every accessibility element's text.
 osascript >/dev/null <<OSA
 tell application "System Events"
   tell (first process whose unix id is $APP_PID)
-    ignoring application responses
-      click menu bar item 1 of menu bar 1
-    end ignoring
+    click menu bar item 1 of menu bar 1
   end tell
 end tell
 OSA
 read_menu() {
   osascript <<OSA 2>/dev/null || true
+on walk(el, depth)
+  set out to ""
+  tell application "System Events"
+    try
+      set d to description of el
+      if d is not missing value and d is not "" then set out to out & d & linefeed
+    end try
+    try
+      set n to name of el
+      if n is not missing value and n is not "" then set out to out & n & linefeed
+    end try
+    try
+      set v to value of el
+      if class of v is text and v is not "" then set out to out & v & linefeed
+    end try
+    if depth < 14 then
+      set kids to {}
+      try
+        set kids to UI elements of el
+      end try
+      repeat with c in kids
+        try
+          set out to out & my walk(c, depth + 1)
+        end try
+      end repeat
+    end if
+  end tell
+  return out
+end walk
 tell application "System Events"
   tell (first process whose unix id is $APP_PID)
     set out to ""
-    repeat with i in (menu items of menu 1 of menu bar item 1 of menu bar 1)
-      set out to out & (name of i as text) & linefeed
+    repeat with p in (UI elements of menu bar item 1 of menu bar 1)
+      set out to out & my walk(p, 0)
     end repeat
     return out
   end tell
@@ -76,14 +102,18 @@ end tell
 OSA
 }
 
-# expect <port> <text…>: the menu row for :port exists and contains every given text.
+# expect <port> <text…>: the row for :port (its VoiceOver label "Port N, …") exists and contains every text.
 expect() {
   local port=$1; shift
   local row
-  row=$(print -r -- "$items" | grep -E "^:$port( |$)" | head -n 1) || true
+  row=$(print -r -- "$items" | grep -E "^Port $port," | head -n 1) || true
   if [[ -z "$row" ]]; then report+="  MISSING :$port\n"; errors=$((errors+1)); return; fi
   for want in "$@"; do
-    [[ "$row" == *"$want"* ]] || { report+="  :$port lacks \"$want\": $row\n"; errors=$((errors+1)); }
+    if [[ "$want" == !* ]]; then
+      [[ "$row" != *"${want#!}"* ]] || { report+="  :$port has \"${want#!}\": $row\n"; errors=$((errors+1)); }
+    else
+      [[ "$row" == *"$want"* ]] || { report+="  :$port lacks \"$want\": $row\n"; errors=$((errors+1)); }
+    fi
   done
 }
 
@@ -104,9 +134,11 @@ check_menu() {
   expect $((BASE+18)) "DB"
   expect $((BASE+19)) "DB" "NETWORK"
   expect $((BASE+23)) "Harness & Page"
-  expect $((BASE+24)) "JSON API"
-  # Phase 4: the Health section and Leftovers appear in the menu.
-  for want in "Health ·" "Leftovers ·" "Clean Up Leftovers…" "Copy Setup Prompt for AI"; do
+  expect $((BASE+24)) "JSON"
+  expect $((BASE+20)) "TUNNEL"
+  expect $((BASE+0)) "PUBLIC" "!NEW"
+  # Panel sections, Leftovers, footer and the filter chips (Phase 10).
+  for want in "Health" "Leftovers" "Clean Up…" "Check Port…" "Find Free Port…" "Copy Setup Prompt for AI" "Developer" "Tunnels" "Settings"; do
     print -r -- "$items" | grep -qF "$want" || { report+="  menu lacks \"$want\"\n"; errors=$((errors+1)); }
   done
 }

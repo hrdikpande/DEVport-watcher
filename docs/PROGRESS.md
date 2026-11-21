@@ -8,8 +8,22 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 - **Branch:** `release-1`, local only. No pushes, PRs or CI (owner's rules for Phases 5–12). One commit per
   phase, "phase-N: <summary>". Phase 5 also has a first commit that splits PortsCore.swift.
 - **Done:** Phases 2–4 (merged into release-1), 5, 6, 7, 8 and 9.
-- **Next step:** Phase 10 (NSPopover + SwiftUI panel, organise, notifications, history, Settings window, hot key,
-  energy behaviour, accessibility). It is the biggest phase: do it in sub-steps, each building and passing tests.
+- **In progress: Phase 10** (uncommitted on release-1; never commit a failing phase). Sub-steps:
+  1. [done, untested] Core: `Store/Settings.swift` (all Phase 10 settings, tolerant decode), `Panel/PanelLogic.swift`
+     (filters, search, sort, "Started by" grouping, NEW keys, hidden ports/groups, custom matchers, status summary),
+     `Store/History.swift` (JSONL, retention, size cap), `SnapshotService.swift` (cadence, tolerance, notification decisions).
+  2. [done, unbuilt] App: `Prompter.swift` (inline prompts with alert fallback), `AppDelegate.swift` (status item, popover,
+     right-click menu, adaptive timer, sleep/wake/lock, battery, scan pipeline, history, notifications, hot key, settings
+     window), `Actions.swift` (every stop/customize/port/DB/QR flow, ported from the old NSMenu main.swift).
+  3. [todo] `PanelModel.swift` + `PanelView.swift` (SwiftUI: search, chips ⌘1–7, sort, Health, Favorites, sections, rows
+     with reserved badges, detail with all actions, Leftovers, footer, inline prompt, keyboard, VoiceOver, History sheet);
+     `RowContent.swift` (info lines and actions per row); `SettingsView.swift` (all tabs incl. Privacy);
+     `SystemServices.swift` (Notifier/UserNotifications, HotKey/Carbon, Power/IOKit, LoginItem/SMAppService,
+     CLIInstaller, UpdateCheck opt-in); new `main.swift` entry (old 1149-line NSMenu main.swift gets replaced).
+  4. [todo] Resources/Localizable.xcstrings + build_app.sh step converting it to en.lproj/Localizable.strings
+     (no xcstringstool here: CommandLineTools only); ui_smoke rewritten for the popover (AX labels "Port N, …");
+     check.sh privacy grep: allow URLSession only in UpdateCheck; perf_check --idle-cpu 120 gate.
+  5. [todo] Phase10Tests.swift for step 1; docs; check.sh; commit "phase-10: …".
 - **Gate runner:** `./Scripts/check.sh`, which runs every gate and marks the LaunchAgent scenario "manual".
 
 ## Owner actions
