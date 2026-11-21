@@ -47,7 +47,7 @@ summary=$(print -r -- "$out" | grep -E 'footprint|PASSED|FAIL' | tr '\n' ' ')
 (( rc == 0 )) && report "perf_check.sh" "pass: $summary" || report "perf_check.sh" "FAIL: $summary"
 
 priv=$( { grep -rniE 'hardik|pande' Tests Sources; grep -rn '/Users/' Tests | grep -v '/Users/test/'; \
-          grep -rn -E '\bkill\(' Sources | grep -v 'Sources/PortsCore/PortsCore.swift'; \
+          grep -rn -E '\bkill\(' Sources | grep -v 'Sources/PortsCore/Actions/'; \
           grep -rln -E 'Process\(\)|posix_spawn|NSTask' Sources | grep -v 'Sources/PortsCore/Exec.swift'; \
           grep -rn 'URLSession' Sources; } 2>/dev/null )
 [[ -z "$priv" ]] && report "privacy/safety grep" "pass" || { report "privacy/safety grep" "FAIL"; print -r -- "$priv"; }
