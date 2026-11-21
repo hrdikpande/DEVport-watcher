@@ -1,0 +1,438 @@
+{
+  "$id": "https://github.com/hrdikpande/DEVport-watcher/docs/schema/ports-list.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Output of `ports list --json` (schemaVersion 1). Optional fields are omitted when unknown.",
+  "properties": {
+    "generatedAt": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "ports": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "addresses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "category": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "confidence": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "connections": {
+            "type": "integer"
+          },
+          "container": {
+            "additionalProperties": false,
+            "properties": {
+              "health": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "image": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "project": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "service": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "image",
+              "project",
+              "service",
+              "health"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "cpuPercent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "database": {
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "enum": [
+                  "process",
+                  "image",
+                  "handshake"
+                ],
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "source"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "duplicate": {
+            "type": "boolean"
+          },
+          "exe": {
+            "type": "string"
+          },
+          "exposure": {
+            "enum": [
+              "loopback",
+              "all",
+              "specific"
+            ],
+            "type": "string"
+          },
+          "framework": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "frontend",
+              "backend",
+              "database",
+              "container",
+              "tunnel",
+              "ai",
+              "service",
+              "app",
+              "system"
+            ],
+            "type": "string"
+          },
+          "knownPort": {
+            "additionalProperties": false,
+            "properties": {
+              "explanation": {
+                "type": "string"
+              },
+              "howToFree": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "owner": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "owner",
+              "explanation",
+              "howToFree"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "memoryBytes": {
+            "type": "integer"
+          },
+          "orphan": {
+            "additionalProperties": false,
+            "properties": {
+              "evidence": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "level": {
+                "enum": [
+                  "notOrphan",
+                  "possible",
+                  "likely",
+                  "confirmed"
+                ],
+                "type": "string"
+              },
+              "safeToStop": {
+                "enum": [
+                  "green",
+                  "yellow",
+                  "red"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "safeToStop",
+              "evidence"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "parentPID": {
+            "type": "integer"
+          },
+          "pid": {
+            "type": "integer"
+          },
+          "port": {
+            "maximum": 65535,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "process": {
+            "type": "string"
+          },
+          "project": {
+            "additionalProperties": false,
+            "properties": {
+              "branch": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "repo": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "root": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "repo",
+              "root",
+              "branch"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "proto": {
+            "enum": [
+              "tcp",
+              "udp"
+            ],
+            "type": "string"
+          },
+          "reachableFromNetwork": {
+            "type": "boolean"
+          },
+          "startCommand": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "startedBy": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "pid": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "name",
+              "pid"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "stopped": {
+            "type": "boolean"
+          },
+          "tier": {
+            "enum": [
+              "safe",
+              "warning",
+              "blocked"
+            ],
+            "type": "string"
+          },
+          "tunnel": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "publicURL": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "summary": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "summary",
+              "publicURL"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "uptimeSeconds": {
+            "type": "integer"
+          },
+          "web": {
+            "additionalProperties": false,
+            "properties": {
+              "json": {
+                "type": "boolean"
+              },
+              "ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "scheme": {
+                "enum": [
+                  "http",
+                  "https"
+                ],
+                "type": "string"
+              },
+              "status": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "scheme",
+              "status",
+              "ms",
+              "title",
+              "json"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "workers": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "addresses",
+          "category",
+          "command",
+          "confidence",
+          "connections",
+          "cwd",
+          "duplicate",
+          "exe",
+          "exposure",
+          "kind",
+          "label",
+          "memoryBytes",
+          "parentPID",
+          "pid",
+          "port",
+          "process",
+          "proto",
+          "reachableFromNetwork",
+          "startedAt",
+          "stopped",
+          "tier",
+          "uptimeSeconds",
+          "workers"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schemaVersion": {
+      "const": 1
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "generatedAt",
+    "ports"
+  ],
+  "title": "ports list --json",
+  "type": "object"
+}

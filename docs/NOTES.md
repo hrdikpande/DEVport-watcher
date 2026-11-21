@@ -216,3 +216,27 @@ New Phase 1 tests live in `Tests/PortsCoreTests/Phase1Tests.swift`.
 - Idle CPU with the panel closed: 0.098 % over 120 s (gate < 0.1 %), with the
   harness's 25 listeners being scanned every 10 s.
 
+## Found during Phase 11
+
+- `ports free … -- <command>` replaces the CLI process with the user's own
+  command (`execvp`, foreground, same terminal). This is the one launch that
+  isn't a fixed path, by design: it is the user's command, run visibly, never
+  by the app.
+- Exit codes are tested by running the built `ports` binary from the test
+  bundle's folder, with an isolated `PORTS_SUPPORT_DIR`.
+- I did not run the MCP Inspector (`npx @modelcontextprotocol/inspector`),
+  because it needs a network download. The harness runs an equivalent stdio
+  session: initialize, notifications/initialized, tools/list, list_ports, and
+  a stop_port that must be refused. A run with the Inspector is listed under
+  Owner actions.
+- Existing test changed: Phase 6 "Sockets are found in order…" now considers
+  only sockets under the test's temporary home. The Mac's real
+  `/var/run/docker.sock` (Docker Desktop) made it environment-dependent.
+- Universal builds use `-runtime-compatibility-version none`. macOS 14 needs no Swift back-deployment shims, and
+  CommandLineTools ship `libswiftCompatibility56.a` for arm64 only, which broke the x86_64 link of
+  swift-argument-parser.
+- Mid-session, OrbStack took over `/var/run/docker.sock` with 4 containers. Closed-panel scans now run one socket
+  scan and apply container labels to it. Engines are asked at most once a minute while closed (the spec's ceiling
+  is every 15 s), on every open, and at once when proxy listeners change. The panel list is lazy again. Footprint
+  went from 45 MB to 37 MB; idle CPU is 0.055 %.
+

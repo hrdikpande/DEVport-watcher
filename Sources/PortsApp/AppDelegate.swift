@@ -164,11 +164,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let previousAnalysis = model.analysis
         let stoppedByUs = containersStoppedByUs
         scanQueue.async {
-            var result = scan(docker: [:])
-            let snap = ContainerDirectory.shared.current(listeners: result, maxAge: full || open ? 0 : 15)
-            if snap != nil || open {
-                result = scan(docker: snap?.namesByPort ?? [:], containers: snap?.byPort ?? [:], sampleCPU: open)
-            }
+            // One socket scan (CPU sampling only while open). Engines: every open scan; while closed at most once a
+            // minute, or at once when the runtime's proxy listeners change.
+            var result = scan(docker: [:], sampleCPU: open)
+            let snap = ContainerDirectory.shared.current(listeners: result, maxAge: full || open ? 0 : 60)
+            result = applyContainers(result, snap)
             result = DatabaseProbeCache.shared.apply(WebProbeCache.shared.apply(result, probe: open), probe: open)
             result = TunnelProbeCache.shared.apply(result, probe: open, reverse: reverseForwards(sshArgvs()))
             result = applyCustomMatchers(applyOverrides(result, self.overrides), settings.customMatchers)

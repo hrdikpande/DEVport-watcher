@@ -3,7 +3,9 @@
 import Foundation
 
 /// `pathPrefix`: extra folders searched first (e.g. the tool's own bin folder, so a node-based CLI finds node).
-public func run(_ path: String, _ args: [String], timeout: TimeInterval = 3, pathPrefix: [String] = []) -> (out: String, ok: Bool) {
+/// `input`: bytes written to the child's stdin (then closed).
+public func run(_ path: String, _ args: [String], timeout: TimeInterval = 3, pathPrefix: [String] = [],
+                input: Data? = nil) -> (out: String, ok: Bool) {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: path)
     p.arguments = args                                            // argv array: no shell, no injection
@@ -11,7 +13,13 @@ public func run(_ path: String, _ args: [String], timeout: TimeInterval = 3, pat
     let pipe = Pipe()
     p.standardOutput = pipe
     p.standardError = pipe
+    let stdin = input.map { _ in Pipe() }
+    if let stdin { p.standardInput = stdin }
     do { try p.run() } catch { return ("", false) }
+    if let stdin, let input {
+        try? stdin.fileHandleForWriting.write(contentsOf: input)
+        try? stdin.fileHandleForWriting.close()
+    }
     let done = DispatchSemaphore(value: 0)
     var data = Data()
     DispatchQueue.global(qos: .utility).async { data = pipe.fileHandleForReading.readDataToEndOfFile(); done.signal() }

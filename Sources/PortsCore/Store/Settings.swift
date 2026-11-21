@@ -157,8 +157,7 @@ public func parsePortList(_ text: String) -> [Int] {
 /// Thread-safe JSON store for `Settings`.
 public final class SettingsStore: @unchecked Sendable {
     public static var defaultURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(Brand.supportDirectory).appendingPathComponent("settings.json")
+        supportDirectoryURL.appendingPathComponent("settings.json")
     }
     public let url: URL
     private let lock = NSLock()

@@ -8,7 +8,7 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 - [x] IPv4 + IPv6 collapse [have, 1]
 - [x] IPv6-only detection [have]
 - [x] Multi-worker collapse [2]
-- [ ] UDP listeners (CLI list + optional panel filter) [11]
+- [x] UDP listeners (CLI `ports list --udp`, read-only) [11]
 - [x] Monitored range / excluded ports [10]
 - [x] Bind probe for invisible owners (Check Port…, `ports preflight`) [5]
 - [x] Configurable refresh / pause [10]
@@ -29,7 +29,7 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 ## Project context
 - [x] Project root from manifests, incl. monorepos [2]
 - [x] Git branch, incl. worktrees [2]
-- [ ] Filter / act on a project or directory [10, 11] (panel: search by project/branch done; CLI `--project/--dir` in 11)
+- [x] Filter / act on a project or directory [10, 11] (panel search; CLI `--project`, `--dir`; MCP `project_servers`)
 - [x] Duplicate-instance detection [4]
 
 ## Process detail
@@ -40,7 +40,7 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 - [x] Env names with secret values masked (CLI) [2]; macOS 26 withholds other processes' environments, so the CLI says so
 - [x] Connection count / idle [2]
 - [x] Sort by memory / uptime [10]
-- [ ] Started-since filter [10, 11] (panel: sort by uptime; CLI `--since` in 11)
+- [x] Started-since filter [10, 11] (panel sort by uptime; CLI `--since 30m|today`)
 
 ## Orphans & agents
 - [x] Orphan verdicts with tiers [4]
@@ -61,12 +61,12 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 - [x] Stop tree / all ports / all workers [5]
 - [x] Supervisor-aware stop: brew services, launchd, pm2, nodemon, Docker, apps [5]
 - [x] Multi-select stop (Stop Several…; panel multi-select in [10]) [5]
-- [ ] Dry run (CLI) [11]
+- [x] Dry run (CLI) [11]
 - [x] Protected ports (type the number to stop) [5]
 - [x] Pause / resume [5]
 - [x] Second-stop escalation (Force offered within 2 min) [5]
 - [x] Copy start command / Run in Terminal [2, 5]
-- [ ] Free-then-run (CLI) [11]
+- [x] Free-then-run (CLI) [11]
 - [x] Next free port (Find Free Port…, `ports next-free`) [5]
 
 ## Containers
@@ -128,14 +128,14 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 - [x] Stop-action log [10]
 
 ## CLI & automation
-- [ ] `list --json` [11]
-- [ ] `explain` [11]
-- [ ] `preflight` [11] (basic form since [5])
-- [ ] `watch` [11]
-- [ ] `doctor` / `clean` [11]
-- [ ] Stable exit codes + JSON schema [11]
-- [ ] CLI embedded and installable from the menu bar [10, 11]
-- [ ] MCP server with safe-stop gating [11]
+- [x] `list --json` [11]
+- [x] `explain` [11]
+- [x] `preflight` [11] (basic form since [5])
+- [x] `watch` [11]
+- [x] `doctor` / `clean` [11]
+- [x] Stable exit codes + JSON schema [11]
+- [x] CLI embedded and installable from the menu bar [10, 11]
+- [x] MCP server with safe-stop gating [11]
 
 ## Settings
 - [x] Launch at login [10]

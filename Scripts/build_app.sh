@@ -5,7 +5,9 @@ cd "$(dirname "$0")/.."
 
 APP="build/Ports.app"
 fail() { echo "build_app.sh: $*" >&2; exit 1; }
-ARCHS=(--arch arm64 --arch x86_64)
+# macOS 14+ needs no Swift back-deployment shims; skipping them also avoids CommandLineTools' arm64-only
+# libswiftCompatibility56.a breaking the x86_64 link of swift-argument-parser.
+ARCHS=(--arch arm64 --arch x86_64 -Xswiftc -runtime-compatibility-version -Xswiftc none)
 
 swift build -c release "${ARCHS[@]}"
 BIN_PATH="$(swift build -c release "${ARCHS[@]}" --show-bin-path)"

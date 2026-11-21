@@ -7,12 +7,16 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 
 - **Branch:** `release-1`, local only. No pushes, PRs or CI (owner's rules for Phases 5–12). One commit per
   phase, "phase-N: <summary>". Phase 5 also has a first commit that splits PortsCore.swift.
-- **Done:** Phases 2–10.
-- **Next step:** Phase 11: the CLI on swift-argument-parser (every command with `--json`, schema, exit codes, UDP list)
-  and `ports mcp`, with stop off by default.
+- **Done:** Phases 2–11.
+- **Next step:** Phase 12: release.sh + release.yml (sign/notarize only when the secrets exist; otherwise a labelled
+  unsigned build), Homebrew cask template + source formula, README (privacy and safety sections), final docs, final
+  self-review, check.sh twice.
 - **Gate runner:** `./Scripts/check.sh`, which runs every gate and marks the LaunchAgent scenario "manual".
 
 ## Owner actions
+
+- Optional: run the MCP Inspector against `ports mcp` (it needs a network download):
+  `npx @modelcontextprotocol/inspector ports mcp`, after turning on Settings › Command Line & Agents › Enable MCP server.
 
 - VoiceOver check of the panel: open it (⌥⌘P), turn on VoiceOver (⌘F5) and confirm that each row reads
   "Port N, name, category, badges…" and that buttons and filter chips are labelled. Why manual: System Events lists the
@@ -46,6 +50,7 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 | 8     | 0 warnings    | 0 warnings  | 160/160 ×5 | pass | pass (+ ssh -L, kubectl, ngrok public URL) | pass | ≤ 4.9 ms | footprint 23.6 MB (RSS 66 MB) | n/a | local only |
 | 9     | 0 warnings    | 0 warnings  | 170/170 ×5 | pass | pass (+ title page, JSON API, HTTPS 200) | pass | ≤ 5.1 ms | footprint 25.7 MB (RSS 69 MB) | n/a | local only |
 | 10    | 0 warnings    | 0 warnings  | 187/187 ×5 | pass | pass | manual (alive + panel opens) | ≤ 6.1 ms | footprint 38.7 MB (RSS 117 MB) | 0.067 % / 120 s | local only |
+| 11    | 0 warnings    | 0 warnings  | 199/199 ×5 | pass | pass (+ --json, exit codes, CLI stop, MCP stdio session) | manual | ≤ 5.6 ms | footprint 37.2 MB (RSS 114 MB) | 0.055 % / 120 s | local only |
 
 Phase 4 manual gate: **`dev_harness.sh --with-launchd --check` is manual. The owner runs it.** It is not
 "passed" until the owner reports it. Launchd-job exclusion is unit-tested with `launchctl list` fixtures.

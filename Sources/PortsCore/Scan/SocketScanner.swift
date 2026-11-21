@@ -90,3 +90,31 @@ public func scanWithContainers() -> [Listener] {
     guard let snap = ContainerDirectory.shared.current(listeners: first, maxAge: 0) else { return first }
     return scan(docker: snap.namesByPort, containers: snap.byPort)
 }
+
+/// Bound UDP sockets (CLI `ports list --udp`): read-only, one row per process and port.
+public func scanUDP(cache: ProcessCache = .shared) -> [Listener] {
+    var out: [Listener] = []
+    for pid in Proc.allPIDs() {
+        let socks = Proc.udpSockets(pid)
+        guard !socks.isEmpty, let bsd = Proc.bsdInfo(pid) else { continue }
+        let info = cache.info(pid: pid, start: bsd.start)
+        var byPort: [Int: (Exposure, [String])] = [:]
+        for b in socks {
+            let cur = byPort[b.port]
+            byPort[b.port] = (cur.map { $0.0.widest(b.exposure) } ?? b.exposure, (cur?.1 ?? []) + [b.address])
+        }
+        for (port, (exposure, addrs)) in byPort {
+            var l = Listener(port: port, pid: pid, start: bsd.start, uid: bsd.uid, exposed: exposure.isNetworkReachable,
+                             exposure: exposure, exe: info.exe, command: info.argv.joined(separator: " "),
+                             argv: info.argv.isEmpty ? [info.exe] : info.argv, cwd: info.cwd)
+            l.proto = "udp"
+            l.addresses = Array(Set(addrs)).sorted()
+            l.ppid = bsd.ppid
+            let c = classifyDetailed(l)
+            l.kind = c.kind; l.framework = c.framework?.name; l.confidence = c.confidence; l.tier = c.tier
+            l.label = rowLabel(kind: c.kind, tool: c.name, cwd: info.cwd, project: info.project)
+            out.append(l)
+        }
+    }
+    return out.sorted { ($0.port, $0.pid) < ($1.port, $1.pid) }
+}

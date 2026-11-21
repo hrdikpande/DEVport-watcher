@@ -90,8 +90,8 @@ struct PanelView: View {
     var list: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                // Not lazy: every row stays in the accessibility tree (VoiceOver, UI tests); row counts are small.
-                VStack(alignment: .leading, spacing: 0) {
+                // Lazy: only visible rows are built (SwiftUI views are the panel's biggest memory cost).
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                     if !model.analysis.issues.isEmpty {
                         Section(header: SectionHeader(title: L("Health"), count: model.analysis.issues.count)) {
                             ForEach(model.analysis.issues, id: \.id) { IssueRow(issue: $0, app: app, model: model) }

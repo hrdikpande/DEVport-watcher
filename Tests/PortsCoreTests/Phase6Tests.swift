@@ -122,7 +122,9 @@ struct LocatorTests {
             .write(to: URL(fileURLWithPath: "\(home)/.docker/contexts/meta/abc/meta.json"))
         #expect(currentContextSocket(home: home) == "\(home)/.orbstack/run/docker.sock")
 
+        // Only sockets under the test's home: the Mac's own /var/run/docker.sock may exist too.
         let found = locateRuntimes(home: home, env: ["DOCKER_HOST": "unix://\(home)/alias.sock"], tmp: home + "/tmp")
+            .filter { $0.socket.hasPrefix(home) }
         #expect(found.map(\.name) == ["Colima (work)", "OrbStack"])          // alias = colima (first), context = orbstack
         #expect(found[0].socket == "\(home)/alias.sock")
         #expect(locateRuntimes(home: home + "/none", env: [:], tmp: home).isEmpty

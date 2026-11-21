@@ -39,8 +39,7 @@ public func serviceSignature(_ l: Listener) -> String {
 /// Overrides persisted as JSON (`~/Library/Application Support/<Brand>/overrides.json`). Thread-safe.
 public final class OverrideStore: @unchecked Sendable {
     public static var defaultURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(Brand.supportDirectory).appendingPathComponent("overrides.json")
+        supportDirectoryURL.appendingPathComponent("overrides.json")
     }
 
     public let url: URL

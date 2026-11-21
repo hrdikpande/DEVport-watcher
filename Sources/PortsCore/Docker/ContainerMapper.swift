@@ -126,8 +126,14 @@ public final class ContainerDirectory: @unchecked Sendable {
         return snap
     }
 
+    private var runtimesCache: (at: Date, value: [ContainerRuntime])?
+
     func query(now: Date) -> ContainerSnapshot {
-        let runtimes = locate()
+        // The socket search walks a few folders: cache it for a minute.
+        lock.lock(); let cachedRuntimes = runtimesCache; lock.unlock()
+        let runtimes: [ContainerRuntime]
+        if let c = cachedRuntimes, now.timeIntervalSince(c.at) < 60 { runtimes = c.value }
+        else { runtimes = locate(); lock.lock(); runtimesCache = (now, runtimes); lock.unlock() }
         var answered: [ContainerRuntime] = [], all: [ContainerInfo] = []
         for rt in runtimes {
             guard let r = unixHTTP(socket: rt.socket, path: "/containers/json"), r.status == 200 else { continue }
@@ -161,3 +167,19 @@ public func containerAction(_ action: String, name: String, directory: Container
 
 /// `docker logs -f <name>` for the clipboard.
 public func logsCommand(_ name: String) -> String { "docker logs -f " + shellQuote(name) }
+
+/// Container labels applied to an existing scan (no second socket scan): only runtime proxies get them.
+public func applyContainers(_ ls: [Listener], _ snap: ContainerSnapshot?) -> [Listener] {
+    guard let snap else { return ls }
+    let byPort = snap.byPort, names = snap.namesByPort
+    return ls.map { l in
+        var r = l
+        if let info = containerInfo(exe: l.exe, port: l.port, map: byPort) {
+            r.container = info.name; r.containerInfo = info; r.label = info.label
+        } else if let n = containerName(exe: l.exe, port: l.port, docker: names) {
+            r.container = n; r.label = n
+        }
+        if r.container != nil { r.kind = .docker }
+        return r
+    }
+}

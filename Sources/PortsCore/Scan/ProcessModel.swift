@@ -144,6 +144,31 @@ extension Proc {
         return (listening, established)
     }
 
+    /// Bound UDP sockets of one process (UDP has no "listening" state: every bound local port counts).
+    public static func udpSockets(_ pid: pid_t) -> [BoundPort] {
+        let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+        guard bytes > 0 else { return [] }
+        let stride = MemoryLayout<proc_fdinfo>.stride
+        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(bytes) / stride + 16)
+        let got = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, Int32(fds.count * stride))
+        guard got > 0 else { return [] }
+        var out: [BoundPort] = []
+        for fd in fds.prefix(Int(got) / stride) where fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
+            var si = socket_fdinfo()
+            let siSize = Int32(MemoryLayout<socket_fdinfo>.size)
+            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &si, siSize) == siSize,
+                  si.psi.soi_kind == SOCKINFO_IN, si.psi.soi_protocol == IPPROTO_UDP else { continue }
+            let ini = si.psi.soi_proto.pri_in
+            let port = Int(UInt16(bigEndian: UInt16(truncatingIfNeeded: ini.insi_lport)))
+            guard port > 0 else { continue }
+            let v4 = ini.insi_vflag & UInt8(INI_IPV4) != 0
+            let exposure = v4 ? Exposure(ipv4: ini.insi_laddr.ina_46.i46a_addr4) : Exposure(ipv6: ini.insi_laddr.ina_6)
+            let address = v4 ? ntop(AF_INET, ini.insi_laddr.ina_46.i46a_addr4) : ntop(AF_INET6, ini.insi_laddr.ina_6)
+            out.append(BoundPort(port: port, exposure: exposure, address: address))
+        }
+        return out
+    }
+
     /// Environment strings (`NAME=value`) of an own process. CLI only (`ports list --env`); the app never reads them.
     public static func environment(_ pid: pid_t) -> [String] { procArgs(pid).env }
 

@@ -8,6 +8,41 @@ All notable changes to this project will be documented here.
 - Added characterization tests and CI.
 - Added initial open-source governance documentation.
 
+### Phase 11 — CLI and MCP server
+- `ports` is rebuilt on swift-argument-parser, the only third-party
+  dependency. Every command takes `--json`. Exit codes are stable: 0 ok,
+  1 not found or busy, 2 refused by safety rules, 3 needs confirmation,
+  4 runtime error, 64 usage.
+- Commands:
+  - `list`: `--all --dev --category --project --dir --port --range --since
+    --containers --orphans --sort --tcp/--udp --timing --env --probe`
+  - `ports <port>` / `explain`
+  - `stop <port|pid:N…>`: `--force --tree --all-ports --dry-run --yes`
+  - `free <port…> -- <command…>`
+  - `preflight`, `next-free`, `pause`, `resume`, `cmd [--copy]`, `open`,
+    `url`
+  - `watch [--interval] [--notify]` (NDJSON with `--json`)
+  - `doctor [--fix --yes]`, `clean [--dry-run] [--include-likely]`,
+    `history [--since]`, `mcp`
+- Stops go through the same core as the app: supervisor-aware plan, then
+  StopRegistry, identity check and StopPolicy; each is recorded in history
+  ("by cli").
+  - `--yes` never bypasses protected ports (refused: use the menu bar) or the
+    database warning (always asks interactively).
+  - A non-interactive run without `--yes` exits 3.
+- Bound UDP sockets: `ports list --udp` (read-only).
+- JSON Schema for `--json` output: `docs/schema/ports-list.schema.json`.
+- `ports mcp`: an MCP server over stdio (JSON-RPC 2.0) with tools
+  list_ports, explain_port, is_port_free, find_free_port, list_orphans,
+  project_servers and stop_port.
+  - It runs only when enabled in Settings.
+  - stop_port is refused unless "Allow agents to stop processes" is on, and
+    even then only for your own safe-tier dev servers: never databases,
+    containers, apps, services, system processes or protected ports.
+  - Every MCP stop is logged ("by mcp") and shown as a notification.
+- `PORTS_SUPPORT_DIR` relocates settings, overrides and history (used by
+  tests and the harness).
+
 ### Phase 10 — panel, organisation, notifications, history, settings
 - The NSMenu is replaced by an NSStatusItem with a SwiftUI popover panel.
   Right-click shows a small menu: Refresh, Pause Scanning, Settings…, Quit.

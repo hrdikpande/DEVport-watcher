@@ -29,6 +29,7 @@ public struct Listener: Equatable, Sendable {
     public var container: String? = nil
     public var containerInfo: ContainerInfo? = nil      // Engine API details (Phase 6)
     public var probedDatabase: DatabaseType? = nil      // read-only handshake result (Phase 7, panel open only)
+    public var proto = "tcp"                            // "udp" for UDP sockets (Phase 11, CLI list only)
     public var webInfo: WebInfo? = nil                  // status, time, title (Phase 9, panel open only)
     public var tunnel: TunnelInfo? = nil                // what this tunnel/forward process does (Phase 8)
     public var exposedVia: String? = nil                // "ngrok → https://…", "Reachable on bastion :8080 (ssh -R)"

@@ -41,8 +41,7 @@ public func diffEvents(previous: [Listener], current: [Listener], now: Date = Da
 
 public final class HistoryStore: @unchecked Sendable {
     public static var defaultURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(Brand.supportDirectory).appendingPathComponent("history.jsonl")
+        supportDirectoryURL.appendingPathComponent("history.jsonl")
     }
     public let url: URL
     public let maxBytes: Int

@@ -380,6 +380,36 @@ if [[ "$MODE" == "--check" ]]; then
   else
     echo "  (AirPlay Receiver is off on this Mac: explainer check skipped)"
   fi
+  # Phase 11: --json parses, exit codes, a CLI stop of a harness listener, and the MCP server over stdio.
+  # PORTS_SUPPORT_DIR keeps the user's real settings and history untouched.
+  export PORTS_SUPPORT_DIR="$WORK/support"
+  mkdir -p "$PORTS_SUPPORT_DIR"
+  "$PORTS" list --json --range $BASE-$LAST | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["schemaVersion"] == 1 and len(d["ports"]) >= 10' \
+    || { echo "  FAIL list --json"; errors=$((errors+1)); }
+rc=0;   "$PORTS" stop $((BASE+8)) >/dev/null 2>&1 </dev/null || rc=$?
+  (( rc == 3 )) || { echo "  FAIL stop without --yes exited $rc, expected 3"; errors=$((errors+1)); }
+rc=0;   "$PORTS" stop --yes $((BASE+8)) >/dev/null 2>&1 || rc=$?
+  (( rc == 0 )) || { echo "  FAIL stop --yes :$((BASE+8)) exited $rc"; errors=$((errors+1)); }
+  "$PORTS" preflight $((BASE+8)) >/dev/null || { echo "  FAIL :$((BASE+8)) still busy after stop"; errors=$((errors+1)); }
+rc=0;   "$PORTS" stop --yes $((BASE+6)) >/dev/null 2>&1 </dev/null || rc=$?
+  (( rc == 3 )) || { echo "  FAIL stopping the fake database with --yes exited $rc, expected 3 (never bypassed)"; errors=$((errors+1)); }
+rc=0;   "$PORTS" mcp </dev/null >/dev/null 2>&1 || rc=$?
+  (( rc == 2 )) || { echo "  FAIL mcp while disabled exited $rc, expected 2"; errors=$((errors+1)); }
+  echo '{"mcpEnabled": true}' > "$PORTS_SUPPORT_DIR/settings.json"
+  mcp_out=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+    '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+    '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_ports","arguments":{}}}' \
+    '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"stop_port","arguments":{"port":'$((BASE+0))'}}}' | "$PORTS" mcp)
+  print -r -- "$mcp_out" | python3 -c '
+import json, sys
+r = [json.loads(l) for l in sys.stdin if l.strip()]
+assert [x["id"] for x in r] == [1, 2, 3, 4], r
+assert "stop_port" in json.dumps(r[1]) and "list_ports" in json.dumps(r[1])
+assert "schemaVersion" in r[2]["result"]["content"][0]["text"]
+assert r[3]["result"]["isError"] and "Refused" in r[3]["result"]["content"][0]["text"]
+' || { echo "  FAIL MCP stdio session"; print -r -- "$mcp_out" | head -c 600; errors=$((errors+1)); }
+  "$PORTS" preflight $((BASE+0)) >/dev/null && { echo "  FAIL MCP stop_port stopped :$((BASE+0)) although stop is off"; errors=$((errors+1)); }
+  unset PORTS_SUPPORT_DIR
 
   cleanup
   for _ in {1..100}; do [[ -z "$(listening)" ]] && break; sleep 0.1; done
