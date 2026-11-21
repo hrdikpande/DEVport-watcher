@@ -1,0 +1,18 @@
+[
+  {"Id": "aaaaaaaaaaaa1111111111111111111111111111111111111111111111111111", "Names": ["/demo-db-1"],
+   "Image": "postgres:16", "State": "running", "Status": "Up 2 hours (healthy)",
+   "Ports": [{"IP": "0.0.0.0", "PrivatePort": 5432, "PublicPort": 55432, "Type": "tcp"},
+             {"IP": "::", "PrivatePort": 5432, "PublicPort": 55432, "Type": "tcp"}],
+   "Labels": {"com.docker.compose.project": "demo-shop", "com.docker.compose.service": "db"}},
+  {"Id": "bbbbbbbbbbbb2222222222222222222222222222222222222222222222222222", "Names": ["/demo-web-1"],
+   "Image": "demo/web:latest", "State": "running", "Status": "Up 5 minutes (health: starting)",
+   "Ports": [{"IP": "127.0.0.1", "PrivatePort": 80, "PublicPort": 58080, "Type": "tcp"},
+             {"PrivatePort": 9000, "Type": "tcp"}],
+   "Labels": {"com.docker.compose.project": "demo-shop", "com.docker.compose.service": "web"}},
+  {"Id": "cccccccccccc3333333333333333333333333333333333333333333333333333", "Names": ["/demo-old"],
+   "Image": "redis:7", "State": "exited", "Status": "Exited (0) 3 days ago",
+   "Ports": [{"IP": "0.0.0.0", "PrivatePort": 6379, "PublicPort": 56379, "Type": "tcp"}], "Labels": {}},
+  {"Id": "dddddddddddd4444444444444444444444444444444444444444444444444444", "Names": ["/demo-solo"],
+   "Image": "demo/api", "State": "running", "Status": "Up 1 second", "Ports": [], "Labels": null},
+  {"Id": "not-a-valid-id", "Names": ["/bad"], "Image": "x", "State": "running"}
+]

@@ -7,8 +7,8 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 
 - **Branch:** `release-1`, local only. No pushes, PRs or CI (owner's rules for Phases 5–12). One commit per
   phase, "phase-N: <summary>". Phase 5 also has a first commit that splits PortsCore.swift.
-- **Done:** Phases 2–4 (merged into release-1) and Phase 5.
-- **Next step:** Phase 6 (containers via the Engine API over unix sockets).
+- **Done:** Phases 2–4 (merged into release-1), 5 and 6.
+- **Next step:** Phase 7 (databases: detection, read-only handshakes while the panel is open, client, connection strings, exposure).
 - **Gate runner:** `./Scripts/check.sh`, which runs every gate and marks the LaunchAgent scenario "manual".
 
 ## Owner actions
@@ -35,6 +35,7 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 | 3     | 0 warnings    | 0 warnings  | 94/94 ×5 (130 matcher cases) | pass | pass (14 ports + AirPlay explainer, 0 left) | pass | 2.9–3.7 ms (627 procs) | footprint 19.2 MB (RSS 60 MB) | n/a | pass (#6) |
 | 4     | 0 warnings    | 0 warnings  | 111/111 ×5; flake hunt 20/20 clean | pass | pass (16 ports + orphan, duplicate, leftover; 0 left) | pass | ≤ 4.6 ms | footprint 20.8 MB (RSS 62 MB) | n/a | pass (#7) |
 | 5     | 0 warnings    | 0 warnings  | 125/125 ×5; 30 more runs clean after the probe-budget fix | pass | pass (+ preflight/next-free) | pass | ≤ 4.6 ms | footprint 22.1 MB (RSS 64 MB) | n/a | local only |
+| 6     | 0 warnings    | 0 warnings  | 139/139 ×5 | pass | pass (+ fake engine + proxy: container label) | pass | ≤ 4.4 ms | footprint 22.1 MB (RSS 64 MB) | n/a | local only |
 
 Phase 4 manual gate: **`dev_harness.sh --with-launchd --check` is manual. The owner runs it.** It is not
 "passed" until the owner reports it. Launchd-job exclusion is unit-tested with `launchctl list` fixtures.

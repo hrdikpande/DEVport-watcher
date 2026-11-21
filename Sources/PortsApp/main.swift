@@ -158,15 +158,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // scan() only applies it to container-runtime proxies, so a native process never inherits it.
             var map = cachedDocker, reachable = cachedReachable
             // CPU % is sampled only while the menu is open, on the scan whose result is shown.
-            var result = scan(docker: map)
-            if withDocker {
-                if needsContainerQuery(result) {
-                    let q = dockerQuery()
-                    map = q ?? [:]
-                    reachable = q != nil
-                } else { map = [:]; reachable = nil }
-                result = scan(docker: map, sampleCPU: probe)
+            var result = scan(docker: [:])
+            // Engines are asked only when a runtime's proxy listens: every open-menu scan, else at most every 15 s
+            // (or at once when the proxy listeners change).
+            let snap = ContainerDirectory.shared.current(listeners: result, maxAge: withDocker ? 0 : 15)
+            map = snap?.namesByPort ?? [:]
+            reachable = snap?.reachable
+            if snap != nil || probe {
+                result = scan(docker: map, containers: snap?.byPort ?? [:], sampleCPU: probe)
             }
+            _ = cachedDocker
             result = applyOverrides(self.web.apply(result, probe: probe), self.overrides)
             // Orphans, duplicates and Doctor. launchctl and the leftover sweep run only while the menu is open.
             var input = DoctorInput()
@@ -259,6 +260,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             for left in analysis.leftovers { menu.addItem(leftoverItem(left)) }
         }
         menu.addItem(.separator())
+        if let snap = ContainerDirectory.shared.last {
+            let running = snap.containers.filter { $0.state == "running" }.count
+            let names = snap.answered.isEmpty ? (snap.viaCLI ? "docker CLI" : "not answering") : snap.answered.map(\.name).joined(separator: ", ")
+            menu.addItem(infoItem("Containers: \(names) · \(running) running", symbol: "shippingbox"))
+        }
         let cleanable = cleanupCandidates()
         let clean = ActionItem("Clean Up Leftovers…", symbol: "sparkles", key: "") { [weak self] in self?.cleanUp() }
         clean.isEnabled = !cleanable.isEmpty
@@ -331,6 +337,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sub.addItem(infoItem(cmd.count > 90 ? String(cmd.prefix(89)) + "…" : cmd, symbol: "terminal"))
         for line in detailLines(l) { sub.addItem(infoItem(line.text, symbol: line.symbol)) }
         for line in classificationLines(l) { sub.addItem(infoItem(line.text, symbol: line.symbol)) }
+        for line in containerLines(l) { for (i, w) in wrap(line.text, 70).enumerated() { sub.addItem(infoItem(w, symbol: i == 0 ? line.symbol : nil)) } }
         for line in verdictLines(l) { for (i, w) in wrap(line.text, 70).enumerated() { sub.addItem(infoItem(w, symbol: i == 0 ? line.symbol : nil)) } }
         sub.addItem(.separator())
         if let link = KnownPorts.settingsAction(l) {           // the fix that frees the port: listed first
@@ -353,6 +360,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             sub.addItem(ActionItem("Stop the Older One (:\(older.port), PID \(older.pid))…", symbol: "clock.arrow.circlepath", key: "") {
                 [weak self] in self?.stop(older)
             })
+        }
+        if let c = l.container, l.uid == getuid() || l.containerInfo != nil {
+            sub.addItem(ActionItem("Restart Container “\(c)”…", symbol: "arrow.clockwise.circle", key: "") { [weak self] in
+                self?.restartContainer(c, port: l.port) })
+            sub.addItem(ActionItem("Copy “\(logsCommand(c))”", symbol: "doc.on.clipboard", key: "") { copyToPasteboard(logsCommand(c)) })
         }
         if KnownPorts.restartsAutomatically(l) {
             sub.addItem(infoItem("macOS restarts this immediately — stopping it won't free the port", symbol: "arrow.clockwise"))
@@ -467,6 +479,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         item.submenu = m
         return item
+    }
+
+    func containerLines(_ l: Listener) -> [(text: String, symbol: String?)] {
+        guard let c = l.containerInfo else { return [] }
+        var lines: [(String, String?)] = []
+        lines.append(("Container \(c.name)\(c.id.isEmpty ? "" : " (\(c.id.prefix(12)))") · \(c.image.isEmpty ? "image unknown" : c.image)", "shippingbox"))
+        if let p = c.project { lines.append(("Compose: \(p)\(c.service.map { " / " + $0 } ?? "")", "square.stack.3d.up")) }
+        if !c.status.isEmpty { lines.append(("\(c.status)\(c.runtime.map { " · " + $0.name } ?? "")", "heart.text.square")) }
+        let published = c.ports.filter { $0.publicPort == l.port }
+            .map { "\($0.ip.isEmpty ? "0.0.0.0" : $0.ip):\($0.publicPort) → \($0.privatePort)/\($0.proto)" }
+        if !published.isEmpty { lines.append(("Published " + published.joined(separator: ", "), "arrow.right.circle")) }
+        if c.publishedOnAllInterfaces(l.port) {
+            let priv = c.ports.first { $0.publicPort == l.port }?.privatePort ?? l.port
+            lines.append(("⚠️ Published on all interfaces: use 127.0.0.1:\(l.port):\(priv) to keep it local", nil))
+        }
+        return lines
+    }
+
+    func restartContainer(_ name: String, port: Int) {
+        let key = "container-" + name
+        guard beginStop(key) else { return }
+        guard confirm("Restart container “\(name)”?", "What restarts: container \(name)\nHow: Engine API restart (stop, then start), else `docker restart`.",
+                      button: "Restart", key: key) else { return endStop(key) }
+        var err: String?
+        afterWork({ err = containerAction("restart", name: name) }) { fresh in
+            self.endStop(key)
+            if let err { return self.alert("Couldn't restart \(name)", err) }
+            self.alert("Restarted \(name)", portReport(port, owners: owners(ofPort: port, in: fresh)))
+        }
     }
 
     // MARK: Health, orphans and clean-up

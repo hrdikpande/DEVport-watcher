@@ -146,3 +146,20 @@ New Phase 1 tests live in `Tests/PortsCoreTests/Phase1Tests.swift`.
   still asserted by "A server that never answers costs about the probe
   budget".
 
+## Found during Phase 6
+
+- Podman socket paths, per the Podman docs: 4.x under
+  `~/.local/share/containers/podman/machine/<provider>/podman.sock`, 5.x at
+  `$TMPDIR/podman/<machine>-api.sock`. Both are searched. Not checked against
+  a real Podman install on this Mac.
+- `DOCKER_HOST=tcp://…` is ignored on purpose: Ports only talks to local unix
+  sockets.
+- The harness's fake proxy is a small C program built with `cc`, because a
+  copied Apple binary (`nc`) is killed at launch.
+- ui_smoke doesn't check the container row: the fake engine is reached
+  through `DOCKER_HOST`, which only the CLI run in the harness sets.
+- `engineRestartPolicy` (`GET /containers/<id>/json`) exists, but the stop
+  confirmation doesn't show the policy yet. It says "only if its restart
+  policy says so". Phase 10's inline confirmation should show the actual
+  policy.
+

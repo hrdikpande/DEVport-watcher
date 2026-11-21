@@ -6,7 +6,7 @@ import Foundation
 /// One scan of every listening socket. Static per-process data comes from `cache` (keyed by pid + start
 /// time); what can change (ppid, state, TTY, metrics, connections, branch) is read every time.
 /// `sampleCPU` (panel open only) adds CPU % from the previous sample.
-public func scan(docker: [Int: String], cache: ProcessCache = .shared, sampleCPU: Bool = false,
+public func scan(docker: [Int: String], containers: [Int: [ContainerInfo]] = [:], cache: ProcessCache = .shared, sampleCPU: Bool = false,
                  cpu: CPUSampler = .shared) -> [Listener] {
     var out: [Listener] = []
     var branches: [String: String?] = [:]          // repo root -> branch, read once per scan
@@ -37,6 +37,10 @@ public func scan(docker: [Int: String], cache: ProcessCache = .shared, sampleCPU
                              exposure: exposure, exe: exe, command: cmd.isEmpty ? exe : cmd,
                              argv: args.isEmpty ? [exe] : args, cwd: cwd,
                              container: containerName(exe: exe, port: port, docker: docker))
+            if let info = containerInfo(exe: exe, port: port, map: containers) {
+                l.container = info.name
+                l.containerInfo = info
+            }
             l.stopped = state.stopped
             l.tty = state.tty
             l.ppid = bsd.ppid
@@ -53,7 +57,7 @@ public func scan(docker: [Int: String], cache: ProcessCache = .shared, sampleCPU
             l.framework = c.framework?.name
             l.confidence = c.confidence
             l.tier = c.tier
-            l.label = rowLabel(kind: c.kind, tool: c.name, cwd: cwd, project: project)
+            l.label = l.containerInfo?.label ?? rowLabel(kind: c.kind, tool: c.name, cwd: cwd, project: project)
             out.append(l)
         }
     }
@@ -83,5 +87,6 @@ public func listRow(_ l: Listener) -> String {
 /// One fresh scan with container labels queried in the same pass (never a stale port map).
 public func scanWithContainers() -> [Listener] {
     let first = scan(docker: [:])
-    return needsContainerQuery(first) ? scan(docker: dockerPorts()) : first
+    guard let snap = ContainerDirectory.shared.current(listeners: first, maxAge: 0) else { return first }
+    return scan(docker: snap.namesByPort, containers: snap.byPort)
 }

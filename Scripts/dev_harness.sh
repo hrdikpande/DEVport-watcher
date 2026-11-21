@@ -28,7 +28,7 @@ if (( WITH_LAUNCHD )) && [[ -n "${CI:-}" ]]; then echo "dev_harness: --with-laun
 LAUNCHD_PREFIX="io.github.hrdikpande.ports.harness."
 LABEL=""
 BASE=${PORT_BASE:-47100}
-LAST=$((BASE + 15 + WITH_LAUNCHD))
+LAST=$((BASE + 17))
 
 listening() { lsof -nP -iTCP:$BASE-$LAST -sTCP:LISTEN 2>/dev/null | tail -n +2; }
 
@@ -56,6 +56,7 @@ cleanup() {
   for f in "$WORK"/*.pid(N); do PIDS+=$(<"$f"); done
   for p in $PIDS; do kill -CONT $p 2>/dev/null; kill -KILL $p 2>/dev/null; done
   for p in $PIDS; do wait $p 2>/dev/null; done
+  [[ -n "${ENGINE_SOCK:-}" && -S "$ENGINE_SOCK" ]] && rm -f -- "$ENGINE_SOCK"
   PIDS=()
   rm -rf "$WORK"
 }
@@ -214,6 +215,43 @@ PLIST
   say "$(printf '  :%-6s %s' $((BASE+16)) "LaunchAgent $LABEL (temporary, fixed reply): never ORPHAN")"
 fi
 
+# Phase 6: a fake Engine API on a unix socket (fixed JSON reply, never files) and a port proxy named gvproxy
+# (a copy of nc). With DOCKER_HOST pointing at the fake engine, the row must carry the container's details.
+cat > "$WORK/engine.py" <<PY
+import json, socket, sys
+path = sys.argv[1]
+body = json.dumps([{"Id": "e" * 64, "Names": ["/harness-db"], "Image": "postgres:16", "State": "running",
+                    "Status": "Up 1 minute (healthy)",
+                    "Ports": [{"IP": "0.0.0.0", "PrivatePort": 5432, "PublicPort": $((BASE+17)), "Type": "tcp"}],
+                    "Labels": {"com.docker.compose.project": "harness", "com.docker.compose.service": "db"}}]).encode()
+reply = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s" % (len(body), body)
+s = socket.socket(socket.AF_UNIX); s.bind(path); s.listen()
+while True:
+    c, _ = s.accept(); c.recv(4096); c.sendall(reply); c.close()
+PY
+# Short path: unix socket names are limited to 104 bytes. The socket file is created by engine.py.
+ENGINE_SOCK="/tmp/ports-harness-$$.sock"
+# A stand-in proxy binary named gvproxy (a copied Apple binary is killed at launch): listens, accepts, sends nothing.
+cat > "$WORK/gvproxy.c" <<'C'
+#include <arpa/inet.h>
+#include <stdlib.h>
+#include <unistd.h>
+int main(int argc, char **argv) {
+  int s = socket(AF_INET, SOCK_STREAM, 0), one = 1;
+  setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+  struct sockaddr_in a = { .sin_family = AF_INET, .sin_port = htons(atoi(argv[1])) };
+  inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);
+  if (bind(s, (struct sockaddr *)&a, sizeof a) || listen(s, 8)) return 1;
+  for (;;) { int c = accept(s, 0, 0); if (c >= 0) close(c); }
+}
+C
+cc -O -o "$WORK/gvproxy" "$WORK/gvproxy.c"
+start $((BASE+17)) "container behind a port proxy: harness-db · postgres:16 · harness/db" \
+  "$WORK/gvproxy" $((BASE+17))
+python3 "$WORK/engine.py" "$ENGINE_SOCK" >>"$WORK/log" 2>&1 &
+PIDS+=$!
+for _ in {1..100}; do [[ -S "$ENGINE_SOCK" ]] && break; sleep 0.1; done
+
 # Wait until every scenario port listens (no fixed sleep), then suspend the Ctrl-Z scenario.
 want=${#${(u)EXPECT_PORTS}}
 up=0
@@ -225,7 +263,7 @@ done
 (( up >= want )) || { echo "dev_harness: only $up of $want scenario ports came up" >&2; cat "$WORK/log" >&2; exit 1; }
 kill -STOP "$STOPPED_PID"
 
-FULL=$("$PORTS" list)
+FULL=$(DOCKER_HOST="unix://$ENGINE_SOCK" "$PORTS" list)
 TABLE=$(print -r -- "$FULL" | awk -v lo=$BASE -v hi=$LAST '/^:/ { p = substr($1, 2) + 0 } /^:/ && p >= lo && p <= hi')
 
 if [[ "$MODE" == "--check" ]]; then
@@ -267,6 +305,7 @@ if [[ "$MODE" == "--check" ]]; then
   expect $((BASE+14)) "ORPHAN" "!ORPHAN?" "!TWICE"
   expect $((BASE+9)) "TWICE" "!ORPHAN"
   expect $((BASE+15)) "TWICE" "!ORPHAN"
+  expect $((BASE+17)) "Containers" "harness-db · postgres:16 · harness/db · healthy"
   if (( WITH_LAUNCHD )); then expect $((BASE+16)) "!ORPHAN"; fi
   # Phase 5: the bind probe agrees with the table, and next-free skips taken ports.
   "$PORTS" preflight $((BASE+0)) >/dev/null && { echo "  FAIL preflight :$((BASE+0)) said free"; errors=$((errors+1)); }

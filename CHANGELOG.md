@@ -8,6 +8,27 @@ All notable changes to this project will be documented here.
 - Added characterization tests and CI.
 - Added initial open-source governance documentation.
 
+### Phase 6 — containers
+- Finds every runtime's Engine API socket, in order: `DOCKER_HOST` (unix
+  only), the Docker CLI's current context, Docker Desktop, `/var/run`,
+  OrbStack, Colima profiles, Lima instances, Rancher Desktop, and Podman
+  machines (4.x and 5.x locations). Duplicates by symlink are dropped.
+- A small HTTP/1.1 client over the unix socket: 2 s timeout, Content-Length
+  and chunked bodies, 8 MB cap. It is read-only except container stop and
+  restart. The CLI remains a fallback when no socket answers.
+- Rows behind a runtime's port proxy show `container · image · compose
+  project/service · health`. Only proxies can carry a container, and with
+  several runtimes the proxy's own runtime wins.
+- Stop Container (Engine API), Restart Container…, Stop Compose Project (the
+  confirmation lists every container), and Copy `docker logs -f <name>`.
+- Containers published on all interfaces get a warning line suggesting
+  `127.0.0.1:<port>:<port>`, plus a Doctor issue (critical for database
+  images).
+- Polling: the engine is asked only when a runtime's proxy is listening. That
+  means every time the menu opens, at most every 15 s while it is closed, and
+  at once when the proxy listeners change. The footer shows which runtimes
+  answer and how many containers run.
+
 ### Phase 5 — stopping, supervisors and lifecycle
 - PortsCore is split into the spec's folders: Model, Scan, Detect, Docker,
   Actions, Web, Store.

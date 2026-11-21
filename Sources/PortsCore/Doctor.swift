@@ -49,6 +49,15 @@ public struct Analysis: Sendable {
     }
 }
 
+let databaseImages = ["postgres", "mysql", "mariadb", "mongo", "redis", "valkey", "memcached", "clickhouse", "cockroach",
+                      "influxdb", "elasticsearch", "opensearch", "neo4j", "couchdb", "rabbitmq", "kafka", "nats", "surrealdb",
+                      "cassandra", "mssql", "sqlserver"]
+/// "postgres:16", "bitnami/redis:7", "mcr.microsoft.com/mssql/server" -> a database image.
+public func isDatabaseImage(_ image: String) -> Bool {
+    let repo = image.split(separator: ":").first.map(String.init)?.lowercased() ?? ""
+    return repo.split(separator: "/").contains { part in databaseImages.contains { part.hasPrefix($0) } }
+}
+
 /// Whether `localhost` resolves to ::1 before 127.0.0.1 here (from /etc/hosts; no network).
 public func localhostPrefersIPv6() -> Bool {
     var hints = addrinfo()
@@ -92,6 +101,14 @@ public func diagnose(_ ls: [Listener], _ a: Analysis, _ input: DoctorInput) -> [
         issues.append(Issue(id: "dbexposed-\(l.pid)-\(l.port)", severity: .critical,
                             title: "\(l.framework ?? l.label) on :\(l.port) is reachable from your network",
                             explanation: "It listens on \(l.addresses.joined(separator: ", ")). Bind it to 127.0.0.1 unless other machines need it.",
+                            fix: nil))
+    }
+    for l in ls {
+        guard let c = l.containerInfo, c.publishedOnAllInterfaces(l.port) else { continue }
+        let priv = c.ports.first { $0.publicPort == l.port }?.privatePort ?? l.port
+        issues.append(Issue(id: "publish-\(c.name)-\(l.port)", severity: l.baseKind == .database || isDatabaseImage(c.image) ? .critical : .warning,
+                            title: "Container \(c.name) publishes :\(l.port) on all interfaces",
+                            explanation: "Anyone on your network can reach it. Publish it as 127.0.0.1:\(l.port):\(priv) (compose: \"127.0.0.1:\(l.port):\(priv)\") unless other machines need it.",
                             fix: nil))
     }
     for l in ls where l.stopped {

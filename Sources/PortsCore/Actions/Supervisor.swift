@@ -36,6 +36,7 @@ public enum StopMethod: Equatable, Sendable {
     case launchAgent(label: String, plist: String?, keepAlive: Bool)
     case pm2(id: Int, name: String, pm2: String)
     case container(name: String)
+    case compose(project: String, containers: [String])     // every container with the same compose project label
     case app(bundle: String, pid: pid_t)                    // quit like ⌘Q (AppKit, in the app)
     case explain(String)                                    // Ports won't act; says why and what to do
 }
@@ -84,7 +85,13 @@ public struct SupervisorContext: Sendable {
 
 /// Stop methods for a listener, the recommended one first.
 public func stopMethods(_ l: Listener, starter: Starter, ctx: SupervisorContext) -> [StopMethod] {
-    if let c = l.container { return [.container(name: c)] }
+    if let c = l.container {
+        if let p = l.containerInfo?.project, let snap = ContainerDirectory.shared.last {
+            let names = snap.project(p).map(\.name)
+            if names.count > 1 { return [.container(name: c), .compose(project: p, containers: names)] }
+        }
+        return [.container(name: c)]
+    }
     if KnownPorts.restartsAutomatically(l) {
         return [.explain("macOS restarts \(appName(l.exe)) immediately, so stopping it won't free port \(l.port)."
                          + (KnownPorts.explanation(l).map { " " + $0 } ?? ""))]
@@ -158,6 +165,11 @@ public func confirmation(_ m: StopMethod, for l: Listener) -> Confirmation {
         return Confirmation(title: "Stop Container", whatStops: "container \(name)", how: "`docker stop \(name)`.",
                             restarts: "Only if the container's restart policy says so.",
                             persists: "It starts again with `docker start \(name)` or `docker compose up`.")
+    case .compose(let project, let names):
+        return Confirmation(title: "Stop Compose Project", whatStops: "compose project \(project): \(names.joined(separator: ", "))",
+                            how: "Stops each container (Engine API, else `docker stop`).",
+                            restarts: "Only containers whose restart policy says so.",
+                            persists: "`docker compose up` in the project starts them again.")
     case .app(let bundle, _):
         let app = basename(String(bundle.dropLast(4)))
         return Confirmation(title: "Quit \(app)", whatStops: app, how: "Asks the app to quit, like ⌘Q (it may ask to save). Never force-killed first.",
@@ -198,9 +210,10 @@ public func execute(_ m: StopMethod, registry: StopRegistry, uid: uid_t = getuid
         let r = run(pm2, ["stop", String(id)], timeout: 15, pathPrefix: [(pm2 as NSString).deletingLastPathComponent])
         return r.ok ? nil : .commandFailed(r.out)
     case .container(let name):
-        guard let docker = dockerPath, isSafeContainerName(name) else { return .refused("No container CLI, or an unsafe name.") }
-        let r = run(docker, ["stop", "--", name], timeout: 20)
-        return r.ok ? nil : .commandFailed(r.out)
+        return containerAction("stop", name: name).map { .commandFailed($0) }
+    case .compose(_, let names):
+        let errs = names.compactMap { n in containerAction("stop", name: n).map { "\(n): \($0)" } }
+        return errs.isEmpty ? nil : .commandFailed(errs.joined(separator: "\n"))
     case .app:
         return .refused("Quitting an app is done by the app (AppKit).")
     case .explain(let why):

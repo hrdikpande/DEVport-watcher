@@ -70,13 +70,13 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 - [x] Next free port (Find Free Port…, `ports next-free`) [5]
 
 ## Containers
-- [ ] All runtimes auto-detected [6]
-- [ ] Engine API mapping [6]
-- [ ] Image, compose project/service, health [6]
+- [x] All runtimes auto-detected [6]
+- [x] Engine API mapping [6]
+- [x] Image, compose project/service, health [6]
 - [x] `docker stop`, not a proxy kill [have, 6]
-- [ ] Stop compose project [6]
-- [ ] Restart container, copy logs command [6]
-- [ ] 0.0.0.0 publish warning [6]
+- [x] Stop compose project [6]
+- [x] Restart container, copy logs command [6]
+- [x] 0.0.0.0 publish warning [6]
 
 ## Databases
 - [ ] Detection by process / image / protocol [7]
