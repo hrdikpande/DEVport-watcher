@@ -7,9 +7,12 @@ public struct Project: Equatable, Sendable {
     public let repo: String?         // enclosing repo/workspace name when `root` is a package inside it
     public let repoRoot: String      // where .git lives (== root when not in a monorepo)
     public var branch: String?
+    public var dependencies: [String]  // package.json dependencies + devDependencies (names only)
 
-    public init(root: String, name: String, repo: String? = nil, repoRoot: String? = nil, branch: String? = nil) {
+    public init(root: String, name: String, repo: String? = nil, repoRoot: String? = nil, branch: String? = nil,
+                dependencies: [String] = []) {
         self.root = root; self.name = name; self.repo = repo; self.repoRoot = repoRoot ?? root; self.branch = branch
+        self.dependencies = dependencies
     }
 
     /// "web", "shop › web", "shop › web · main".
@@ -67,13 +70,21 @@ public final class ProjectResolver: @unchecked Sendable {
                 if fm.fileExists(atPath: dir + "/.git") { break }
             } else if package != nil, fm.fileExists(atPath: dir + "/.git") || isWorkspaceRoot(dir) {
                 let repo = dir
-                return Project(root: package!, name: manifestName(package!), repo: manifestName(repo), repoRoot: repo)
+                return Project(root: package!, name: manifestName(package!), repo: manifestName(repo), repoRoot: repo,
+                               dependencies: nodeDependencies(package!))
             }
             dir = (dir as NSString).deletingLastPathComponent
             depth += 1
         }
         guard let package else { return nil }
-        return Project(root: package, name: manifestName(package))
+        return Project(root: package, name: manifestName(package), dependencies: nodeDependencies(package))
+    }
+
+    /// Declared npm dependencies of the package (framework hints such as express, fastify, @nestjs/core).
+    func nodeDependencies(_ dir: String) -> [String] {
+        guard let json = readJSON(dir + "/package.json") else { return [] }
+        let keys = ["dependencies", "devDependencies"].flatMap { (json[$0] as? [String: Any])?.keys.map { $0 } ?? [] }
+        return Array(Set(keys)).sorted()
     }
 
     func isWorkspaceRoot(_ dir: String) -> Bool {

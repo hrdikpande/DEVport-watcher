@@ -39,6 +39,10 @@ let package = Package(
         .executable(name: "PortsApp", targets: ["PortsApp"]),
         .executable(name: "ports", targets: ["ports"])
     ],
+    dependencies: [
+        // The only third-party dependency (spec §1.6): the CLI's argument parsing.
+        .package(url: "https://github.com/apple/swift-argument-parser", exact: "1.5.0")
+    ],
     targets: [
         .target(
             name: "PortsCore",
@@ -51,7 +55,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "ports",
-            dependencies: ["PortsCore"],
+            dependencies: ["PortsCore", .product(name: "ArgumentParser", package: "swift-argument-parser")],
             path: "Sources/ports"
         ),
         .testTarget(

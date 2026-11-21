@@ -8,6 +8,293 @@ All notable changes to this project will be documented here.
 - Added characterization tests and CI.
 - Added initial open-source governance documentation.
 
+### Phase 12 — distribution and documentation
+- Panel redesign:
+  - Ports are shown as plain numbers (it showed "8,787").
+  - The search field is rounded, with a clear button.
+  - A Quit button sits before the sort/view menu.
+  - Filters are capsules, sections have count pills, rows have rounded hover and selection backgrounds.
+  - Badges are tinted capsules, Health issues are tinted cards, and the footer has quieter icon buttons.
+- Settings redesign: a System Settings–style sidebar of sections with coloured icons, replacing the horizontal
+  tabs, and grouped forms with section headers and explanatory footers.
+- The idle CPU gate now reads the app's own CPU time over three 120 s closed-panel windows and gates on the
+  median (same 0.1 % budget).
+- README: every feature with what it does, who uses it and why it helps, a "Who it's for" table, and a call for
+  contributors.
+- `Scripts/release.sh`: universal build, Developer ID signature, notarization
+  (`notarytool --wait`), staple, zip and DMG, `SHA256SUMS.txt` and release
+  notes. Without signing or notary secrets it still builds everything and
+  labels the result unsigned (`Ports-<version>-unsigned.*`); it never fails
+  for missing secrets.
+- `.github/workflows/release.yml` runs on `v*` tags. It imports the certificate
+  and notary key only when their secrets exist, then publishes a GitHub
+  release with SHA-256 sums.
+- `build_app.sh` signs with `DEVELOPER_ID_APPLICATION` (hardened runtime,
+  timestamp) when set, ad-hoc otherwise, and stamps `VERSION` into
+  Info.plist.
+- Homebrew templates in `packaging/homebrew-tap`: a cask (`auto_updates
+  false`, macOS ≥ Sonoma, app + embedded CLI binary, zap, livecheck) and a
+  source-build formula.
+- README rewritten: install, features, menu bar, safety model, privacy (every
+  probe), CLI, MCP, comparison and credits, contributing. ARCHITECTURE
+  updated; FEATURES fully ticked except notarization, which needs the owner's
+  Apple Developer ID.
+- Probe sockets refuse non-loopback hosts at the lowest level.
+
+### Phase 11 — CLI and MCP server
+- `ports` is rebuilt on swift-argument-parser, the only third-party
+  dependency. Every command takes `--json`. Exit codes are stable: 0 ok,
+  1 not found or busy, 2 refused by safety rules, 3 needs confirmation,
+  4 runtime error, 64 usage.
+- Commands:
+  - `list`: `--all --dev --category --project --dir --port --range --since
+    --containers --orphans --sort --tcp/--udp --timing --env --probe`
+  - `ports <port>` / `explain`
+  - `stop <port|pid:N…>`: `--force --tree --all-ports --dry-run --yes`
+  - `free <port…> -- <command…>`
+  - `preflight`, `next-free`, `pause`, `resume`, `cmd [--copy]`, `open`,
+    `url`
+  - `watch [--interval] [--notify]` (NDJSON with `--json`)
+  - `doctor [--fix --yes]`, `clean [--dry-run] [--include-likely]`,
+    `history [--since]`, `mcp`
+- Stops go through the same core as the app: supervisor-aware plan, then
+  StopRegistry, identity check and StopPolicy; each is recorded in history
+  ("by cli").
+  - `--yes` never bypasses protected ports (refused: use the menu bar) or the
+    database warning (always asks interactively).
+  - A non-interactive run without `--yes` exits 3.
+- Bound UDP sockets: `ports list --udp` (read-only).
+- JSON Schema for `--json` output: `docs/schema/ports-list.schema.json`.
+- `ports mcp`: an MCP server over stdio (JSON-RPC 2.0) with tools
+  list_ports, explain_port, is_port_free, find_free_port, list_orphans,
+  project_servers and stop_port.
+  - It runs only when enabled in Settings.
+  - stop_port is refused unless "Allow agents to stop processes" is on, and
+    even then only for your own safe-tier dev servers: never databases,
+    containers, apps, services, system processes or protected ports.
+  - Every MCP stop is logged ("by mcp") and shown as a notification.
+- `PORTS_SUPPORT_DIR` relocates settings, overrides and history (used by
+  tests and the harness).
+
+### Phase 10 — panel, organisation, notifications, history, settings
+- The NSMenu is replaced by an NSStatusItem with a SwiftUI popover panel.
+  Right-click shows a small menu: Refresh, Pause Scanning, Settings…, Quit.
+- The status item shows the dev-listener count (or all, or none) and a red
+  dot for Doctor issues or a confirmed orphan; its tooltip summarises.
+- Panel, top to bottom:
+  - search (`/` or ⌘F) and filter chips (⌘1–⌘7)
+  - sort by category, port, project, uptime, memory or Started by
+  - Health, Favorites, category sections, Leftovers
+  - a footer with Check Port…, Find Free Port…, Clean Up…, History, Copy
+    Setup Prompt, Settings, runtime status and last scan time
+- Rows have reserved badges: NEW, LAN/NETWORK, ORPHAN, TWICE, STOPPED/PAUSED,
+  IDLE, CONTAINER, DB, TUNNEL, PUBLIC, JSON, ×N. They show HTTP status and
+  time, and uptime. Hover shows the Stop button.
+- Expanding a row shows every detail and action, plus Customize.
+- Inline confirmations replace modal alerts (bulk clean-up stays a modal, as
+  specified).
+- Selection: ⌘-click selects several rows to stop together. Option-click hides
+  a whole process group.
+- Keyboard: ↑/↓, ⏎, ⌫, Esc, ⌘K, ⌘,. Every row and control has a VoiceOver
+  label. Reduce Motion, light/dark and increased contrast are respected.
+- Notifications (UserNotifications, each type toggleable):
+  - watched port started, stopped or taken by something else (on by default)
+  - new orphan, exposed database, container stopped (opt-in)
+  - actions: Open, Copy Address, Stop
+- History in `history.jsonl`: ports appearing and disappearing, plus every
+  stop with who, what, method and result. 7-day retention, size-capped,
+  filterable History view, Clear History.
+- Settings window with these tabs: General, Scanning, Ports, Classification
+  (overrides table and custom matchers), Orphans, Databases, Containers,
+  Command Line & Agents, Privacy (every probe: when, where, timeout,
+  read-only) and About.
+  - General includes launch at login (SMAppService), the hot key (default
+    ⌥⌘P, Carbon, no Accessibility permission) and the opt-in daily update
+    check, the only internet request.
+  - Uninstall… removes the login item, CLI link and support folder, then
+    moves the app to the Trash.
+- Energy: timer tolerance ≥ 50 %. Scanning pauses while asleep or locked and
+  does a full rescan on wake or unlock; it runs 3× slower (or pauses, by
+  choice) on battery or Low Power Mode.
+  - Panel closed: sockets only.
+  - Panel open: 2 s scans with CPU sampling and probes.
+  - The panel is released when closed.
+- Strings are in `Localization/Localizable.xcstrings`; `build_app.sh`
+  converts them to `en.lproj`.
+- Fixed: argv reads allocated a 1 MB buffer each and fragmented the heap.
+
+### Phase 9 — web probing (lightweight)
+- Rows read "200 · 34 ms · My App". The probe is one `GET /` after the
+  scheme check: plain HTTP over a loopback socket, HTTPS through
+  Network.framework (self-signed certificates accepted for this probe only).
+  It records the status code, response time, `Server` header and `<title>`
+  (first 64 KB, entities decoded).
+- Probe rules: only while the menu is open (or `ports list --probe`), only on
+  loopback, 0.8 s per listener, at most 4 at once, re-probed after 30 s.
+  Never against databases, tunnels or LAN-only binds.
+- JSON API badge for JSON responses.
+- Copy URL and Copy host:port.
+- Network-reachable servers get Copy LAN URL (the Mac's current LAN IP) and
+  Show QR Code for Phone (CoreImage). Loopback-only servers get the flag that
+  exposes them: `vite --host`, `next dev -H 0.0.0.0`, `runserver 0.0.0.0:8000`
+  and the like.
+- Search the Web for This Port opens a search with the port and process name
+  only, never paths or arguments.
+- No thumbnails or rendered previews (non-goal).
+
+### Phase 8 — tunnels and forwards (display only)
+- `ssh -L/-R/-D` are parsed, including the glued (`-L8080:h:80`), bind address
+  and IPv6 forms. Forward rows read "Forward → db:5432 via bastion" or "SOCKS
+  proxy". `ssh -R` marks the local port it exposes ("Reachable on bastion
+  :8080").
+- `kubectl port-forward` rows read "k8s · ns/svc/web 8080→80".
+- gcloud IAP tunnels, AWS SSM port forwarding, cloud-sql-proxy and Tailscale
+  are recognised and described.
+- ngrok: the agent's local API (`/api/tunnels`) gives the public URL, shown on
+  the row of the local port it forwards (PUBLIC badge, Copy Public URL).
+- cloudflared: quick (`tunnel --url …`) and named (`tunnel run <name>`)
+  tunnels. The quick tunnel's hostname comes from cloudflared's metrics
+  server (`/quicktunnel`).
+- Both local APIs are read only while the menu is open (or with
+  `ports list --probe`): loopback only, read-only, 0.8 s.
+- Ports never starts, changes or reconnects a tunnel. Stop stops the process.
+
+### Phase 7 — databases
+- Databases are recognised by their process, by container image (postgres,
+  redis, mysql/mariadb, mongo, …), or by a read-only handshake on an unknown
+  port. Handshakes:
+  - PostgreSQL SSLRequest, a MySQL greeting read, Redis `PING`, a MongoDB
+    `hello` OP_MSG, Memcached `version`, and the AMQP protocol header.
+  - They run only while the menu is open (or with `ports list --probe`), only
+    on loopback, only on your own listeners above 1023.
+  - 300 ms each, 0.8 s per listener; credentials are never sent.
+  - They never run against a listener already known as a database, and that
+    includes the web probe.
+- DB badge, and a red NETWORK badge for a database reachable from the
+  network, plus a critical Doctor issue.
+- Open in Database Client…: the apps that can open the connection URL
+  (`NSWorkspace.urlsForApplications`). Known clients are listed first. The
+  first choice is remembered per database type, and Open With lists the
+  others.
+- Copy Connection URL (`postgres://127.0.0.1:5432`, never with a user or
+  password) and Copy `psql` / `mysql` / `redis-cli` / `mongosh` command.
+- Safe stop keeps the Phase 1 data-store tier: 15 s grace and a separate Force
+  step. brew-managed databases stop through brew services (Phase 5).
+
+### Phase 6 — containers
+- Finds every runtime's Engine API socket, in order: `DOCKER_HOST` (unix
+  only), the Docker CLI's current context, Docker Desktop, `/var/run`,
+  OrbStack, Colima profiles, Lima instances, Rancher Desktop, and Podman
+  machines (4.x and 5.x locations). Duplicates by symlink are dropped.
+- A small HTTP/1.1 client over the unix socket: 2 s timeout, Content-Length
+  and chunked bodies, 8 MB cap. It is read-only except container stop and
+  restart. The CLI remains a fallback when no socket answers.
+- Rows behind a runtime's port proxy show `container · image · compose
+  project/service · health`. Only proxies can carry a container, and with
+  several runtimes the proxy's own runtime wins.
+- Stop Container (Engine API), Restart Container…, Stop Compose Project (the
+  confirmation lists every container), and Copy `docker logs -f <name>`.
+- Containers published on all interfaces get a warning line suggesting
+  `127.0.0.1:<port>:<port>`, plus a Doctor issue (critical for database
+  images).
+- Polling: the engine is asked only when a runtime's proxy is listening. That
+  means every time the menu opens, at most every 15 s while it is closed, and
+  at once when the proxy listeners change. The footer shows which runtimes
+  answer and how many containers run.
+
+### Phase 5 — stopping, supervisors and lifecycle
+- PortsCore is split into the spec's folders: Model, Scan, Detect, Docker,
+  Actions, Web, Store.
+- Stop goes through whatever supervises the process. Every confirmation
+  states what stops, how, whether it restarts automatically, and whether the
+  change persists after the next login.
+  - brew services: Stop Until Next Login (`brew services kill`) or Stop and
+    Disable (`brew services stop`).
+  - Your LaunchAgents: `launchctl bootout gui/<uid>/<label>`. Apple's jobs
+    are refused.
+  - pm2: `pm2 stop <id>`.
+  - nodemon: the watcher and its children are stopped, so nothing respawns.
+  - Containers: `docker stop`.
+  - Apps: quit like ⌘Q.
+  - System processes that launchd restarts: an explanation instead of Kill.
+- Stop Process and Its Children / Stop All Workers. A process holding several
+  ports lists the ports it frees.
+- Stop Several…: one confirmation for checked rows, each with its exact
+  signals.
+- Pause / Resume (SIGSTOP / SIGCONT), with a PAUSED badge for processes Ports
+  paused.
+- Protect Port: stopping a protected port needs its number typed in.
+- A second Stop of the same process within 2 minutes offers Force Quit at
+  once.
+- Check Port… and `ports preflight <port>`: a bind probe on 127.0.0.1, ::1 and
+  0.0.0.0. When no visible process holds the port, it says a process macOS
+  doesn't expose holds it. Find Free Port… and `ports next-free [--from N]`.
+- Run Start Command in Terminal opens a visible Terminal window, never a
+  hidden process. There is no in-app restart.
+- Settings store (`settings.json`, tolerant of older files).
+- Fixed: the web-probe answer tests could time out under parallel load. They
+  now use a test-only budget; the 0.8 s production budget is still tested.
+
+### Phase 4 — orphans, coding agents, duplicates, doctor
+- "Started by": the first meaningful ancestor, from a data table of coding
+  agents (Claude Code, Cursor agent, Codex, Gemini, Aider, Antigravity,
+  Windsurf, Copilot, OpenCode, Kiro), editors, terminals, tmux/screen, pm2,
+  nodemon and launchd jobs.
+- Orphan verdicts (confirmed, likely, possible, not an orphan), each with
+  plain-English evidence and a Safe to stop? answer (green, yellow, red).
+  Signals:
+  - adopted by launchd without being a launchd job
+  - terminal session gone, or no terminal at all
+  - the agent that started it has exited
+  - another instance running, idle, or suspended
+
+  Never flagged: launchd jobs and brew services, pm2, containers, apps in
+  `/Applications`, anything a live terminal, editor or agent still runs, SSH
+  sessions, starred services.
+- Leftovers: orphaned watchers and MCP servers that hold no port (`tsc -w`,
+  `esbuild --watch`, vitest, …). They appear only when they meet the strict
+  rules.
+- Duplicate detection (same project and framework twice) with a TWICE badge
+  and Stop the Older One.
+- Health section from Doctor: orphans, duplicates, databases reachable from the
+  network, suspended or idle servers, a container runtime that doesn't answer,
+  and localhost resolving to ::1 while a server binds only 127.0.0.1 (or the
+  reverse).
+- Clean Up Leftovers… lists exactly what will be signalled. Confirmed
+  orphans are checked and likely ones are opt-in. It uses the same stop core
+  as everything else (StopRegistry, identity check, SIGKILL only for dev
+  servers).
+- Star (never flag as orphan), Copy Setup Prompt for AI, and ORPHAN/TWICE
+  badges in the menu and in `ports list`.
+- `Scripts/check.sh` runs every gate. The harness gained an orphan, a
+  duplicate, an orphaned `tsc -w`, and an owner-run `--with-launchd`
+  LaunchAgent scenario.
+
+### Phase 3 — detection and classification
+- Framework table (`Frameworks.swift`) with about 120 entries: frontend
+  tools, backend frameworks, databases and brokers, tunnels, AI servers. Each
+  entry has matchers, a category, a display name, a default port and whether
+  it speaks HTTP. Some frameworks are recognised by argv (`manage.py
+  runserver`, `php artisan serve`, `next dev --turbo`), some by the launching
+  parent (`go run`, `cargo run`), some by package.json dependencies (Express,
+  Nest, Fastify, Hono, Koa), and some by a bundled runtime (Kibana, LM Studio).
+  Directory names are still never used.
+- New categories: Containers (was Docker), Tunnels & forwards, AI & agents
+  (model servers, MCP servers), Background services (your launchd jobs), Apps
+  (split from System).
+- Each row has a confidence score (0–100) and a safety tier (safe, warning,
+  blocked), shown in its details.
+- Known-ports table: owner, explanation and how to free it, for AirPlay,
+  common dev defaults, database ports, the ngrok inspector, CUPS, Kerberos,
+  SMB/AFP, Docker/Kubernetes APIs and the ephemeral range. `ports list` prints
+  the explanation under a system process that holds a dev port.
+- Customize menu on every row: Rename, Move to (category), Note, Link to App,
+  Favorite, Hide, Mute, Reset. Stored in
+  `~/Library/Application Support/Ports/overrides.json`. An override changes how
+  a row is shown, never how it is stopped or probed.
+- Row icons: the owning app's icon, else the project's `public/` or `static/`
+  favicon, else the category symbol.
+
 ### Phase 2 — richer process model
 - Each listener now records its parent PID, process group, controlling
   terminal and launcher chain (parent → … → launchd). The menu shows

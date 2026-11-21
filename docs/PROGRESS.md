@@ -5,10 +5,33 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 
 ## Current state
 
-- **Phase:** 2 (richer process model), gates passed locally; PR open, waiting for CI
-- **Branch:** `phase-2` (from `main` at `42e64f2`)
-- **Last commit:** see `git log -1 phase-2`
-- **Next step:** CI green on the Phase 2 PR, then create `phase-3` from `phase-2`.
+- **Branch:** `release-1`, local only. No pushes, PRs or CI (owner's rules for Phases 5–12). One commit per
+  phase, "phase-N: <summary>". Phase 5 also has a first commit that splits PortsCore.swift.
+- **Done:** Phases 2–12, committed on `release-1`. check.sh passed twice in a row (2026-11-22).
+- **Next step:** owner review, the owner actions below, then push `release-1` and open the PR.
+- **Gate runner:** `./Scripts/check.sh`, which runs every gate and marks the LaunchAgent scenario "manual".
+
+## Owner actions
+
+- Notarized releases: add the repository secrets DEVELOPER_ID_APPLICATION, DEVELOPER_ID_CERT_P12_BASE64,
+  DEVELOPER_ID_CERT_PASSWORD, NOTARY_KEY_ID, NOTARY_ISSUER_ID and NOTARY_KEY_P8_BASE64. Without them, releases are
+  labelled unsigned.
+- Homebrew: create the `homebrew-tap` repository from `packaging/homebrew-tap` and fill in the SHA-256 values.
+- Screenshots / GIF for the README (`docs/images/`).
+
+- Optional: run the MCP Inspector against `ports mcp` (it needs a network download):
+  `npx @modelcontextprotocol/inspector ports mcp`, after turning on Settings › Command Line & Agents › Enable MCP server.
+
+- VoiceOver check of the panel: open it (⌥⌘P), turn on VoiceOver (⌘F5) and confirm that each row reads
+  "Port N, name, category, badges…" and that buttons and filter chips are labelled. Why manual: System Events lists the
+  popover but returns no children beneath it (3 attempts). ui_smoke gate: manual (it still checks the app stays alive and
+  the panel opens).
+
+- Run `./Scripts/dev_harness.sh --with-launchd --check` (the agent may not register LaunchAgents) and report the
+  result. Gate status: manual.
+- Memory gate: the production criterion says "RSS < 40 MB". The app's raw RSS is 62–64 MB, and its physical
+  footprint (Activity Monitor "Memory") is 20–22 MB. Most of the RSS is AppKit's shared framework pages. Decide
+  whether footprint is the measure; I'm also looking for RSS savings in Phase 10.
 
 ## Decisions
 
@@ -22,9 +45,25 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 
 | Phase | build release | build tests | swift test ×5 | build_app | harness --check | ui_smoke | scan warm | RSS | idle CPU | CI |
 |-------|---------------|-------------|---------------|-----------|-----------------|----------|-----------|-----|----------|----|
-| 2     | 0 warnings    | 0 warnings  | 78/78 ×5      | pass      | pass (13 ports, 0 left) | pass | 2.0–6.7 ms (579 procs) | footprint 17.5 MB (RSS 56 MB) | n/a | pending |
+| 2     | 0 warnings    | 0 warnings  | 78/78 ×5      | pass      | pass (13 ports, 0 left) | pass | 2.0–6.7 ms (579 procs) | footprint 17.5 MB (RSS 56 MB) | n/a | pass (#5) |
+| 3     | 0 warnings    | 0 warnings  | 94/94 ×5 (130 matcher cases) | pass | pass (14 ports + AirPlay explainer, 0 left) | pass | 2.9–3.7 ms (627 procs) | footprint 19.2 MB (RSS 60 MB) | n/a | pass (#6) |
+| 4     | 0 warnings    | 0 warnings  | 111/111 ×5; flake hunt 20/20 clean | pass | pass (16 ports + orphan, duplicate, leftover; 0 left) | pass | ≤ 4.6 ms | footprint 20.8 MB (RSS 62 MB) | n/a | pass (#7) |
+| 5     | 0 warnings    | 0 warnings  | 125/125 ×5; 30 more runs clean after the probe-budget fix | pass | pass (+ preflight/next-free) | pass | ≤ 4.6 ms | footprint 22.1 MB (RSS 64 MB) | n/a | local only |
+| 6     | 0 warnings    | 0 warnings  | 139/139 ×5 | pass | pass (+ fake engine + proxy: container label) | pass | ≤ 4.4 ms | footprint 22.1 MB (RSS 64 MB) | n/a | local only |
+| 7     | 0 warnings    | 0 warnings  | 152/152 ×5 | pass | pass (+ handshake DB, exposed DB) | pass | ≤ 4.7 ms | footprint 24.2 MB (RSS 67 MB) | n/a | local only |
+| 8     | 0 warnings    | 0 warnings  | 160/160 ×5 | pass | pass (+ ssh -L, kubectl, ngrok public URL) | pass | ≤ 4.9 ms | footprint 23.6 MB (RSS 66 MB) | n/a | local only |
+| 9     | 0 warnings    | 0 warnings  | 170/170 ×5 | pass | pass (+ title page, JSON API, HTTPS 200) | pass | ≤ 5.1 ms | footprint 25.7 MB (RSS 69 MB) | n/a | local only |
+| 10    | 0 warnings    | 0 warnings  | 187/187 ×5 | pass | pass | manual (alive + panel opens) | ≤ 6.1 ms | footprint 38.7 MB (RSS 117 MB) | 0.067 % / 120 s | local only |
+| 11    | 0 warnings    | 0 warnings  | 199/199 ×5 | pass | pass (+ --json, exit codes, CLI stop, MCP stdio session) | manual | ≤ 5.6 ms | footprint 37.2 MB (RSS 114 MB) | 0.055 % / 120 s | local only |
+| 12    | 0 warnings    | 0 warnings  | 208/208 ×5 (check.sh run twice, both passed) | pass | pass | manual (alive + panel opens) | ≤ 6.6 ms | footprint 31.8–32.2 MB after 3 opens, 31.1–31.2 MB after 20 (RSS 108 MB) | median 0.075/0.083 % with harness, 0.033 % without (3 × 120 s CPU-time windows) | local only |
+
+Phase 4 manual gate: **`dev_harness.sh --with-launchd --check` is manual. The owner runs it.** It is not
+"passed" until the owner reports it. Launchd-job exclusion is unit-tested with `launchctl list` fixtures.
+All gates in one run: `./Scripts/check.sh`.
 
 Baseline before Phase 2 (main, `PortsApp --list`): scan 8–15 ms warm, 48 tests pass.
+
+Perf numbers come from `Scripts/perf_check.sh` (added in Phase 3), with the harness running.
 
 ## Accessibility
 
@@ -32,6 +71,12 @@ Baseline before Phase 2 (main, `PortsApp --list`): scan 8–15 ms warm, 48 tests
   menu (an accessory app's status item lives in `menu bar 1`, not 2).
 
 ## Open issues
+
+- Earlier uncaptured flake: 20 more runs of `swift test` showed no failure, so it is not reproduced. Watch CI.
+- The LaunchAgent scenario is implemented behind `--with-launchd` (owner-run; refused when CI is set). The agent
+  never runs it.
+- The app computes orphan verdicts only on menu-open scans, because those have the launchd job list. So "an agent
+  that started it has exited" is noticed only if the menu was opened while the agent was alive.
 
 - Memory gate is measured as physical footprint (Activity Monitor "Memory"), since raw RSS of any AppKit
   status-item app is ~50 MB of shared framework pages. Both numbers are recorded. Owner may overrule.

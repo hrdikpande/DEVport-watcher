@@ -5,9 +5,13 @@ import Foundation
 /// One step of a launcher chain: the parent, its parent, … up to launchd.
 public struct Ancestor: Equatable, Sendable {
     public let pid: pid_t
-    public let name: String
+    public let name: String         // kernel process name (Claude Code reports its version here)
     public let exe: String
-    public init(pid: pid_t, name: String, exe: String) { self.pid = pid; self.name = name; self.exe = exe }
+    public let command: String      // basename of argv[0] when readable (own processes), else `name`
+    public let uid: uid_t?
+    public init(pid: pid_t, name: String, exe: String, command: String? = nil, uid: uid_t? = nil) {
+        self.pid = pid; self.name = name; self.exe = exe; self.command = command ?? name; self.uid = uid
+    }
 }
 
 /// Fields of `proc_bsdinfo` the model uses.
@@ -44,6 +48,28 @@ extension Proc {
         let name = withUnsafeBytes(of: info.kp_proc.p_comm) { String(decoding: $0.prefix(while: { $0 != 0 }), as: UTF8.self) }
         return BSDInfo(ppid: info.kp_eproc.e_ppid, pgid: info.kp_eproc.e_pgid, uid: info.kp_eproc.e_ucred.cr_uid,
                        start: UInt64(t.tv_sec) &* 1_000_000 &+ UInt64(t.tv_usec), name: name)
+    }
+
+    public struct Brief: Equatable, Sendable {
+        public let pid: pid_t
+        public let ppid: pid_t
+        public let tty: Int32?
+        public let name: String
+    }
+
+    /// Every process of `uid` in one sysctl (pid, parent, terminal, name): cheap enough for each scan.
+    public static func all(uid: uid_t) -> [Brief] {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_UID, Int32(bitPattern: uid)]
+        var size = 0
+        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return [] }
+        let stride = MemoryLayout<kinfo_proc>.stride
+        var procs = [kinfo_proc](repeating: kinfo_proc(), count: size / stride + 16)
+        size = procs.count * stride
+        guard sysctl(&mib, 4, &procs, &size, nil, 0) == 0 else { return [] }
+        return procs.prefix(size / stride).map { p in
+            let name = withUnsafeBytes(of: p.kp_proc.p_comm) { String(decoding: $0.prefix(while: { $0 != 0 }), as: UTF8.self) }
+            return Brief(pid: p.kp_proc.p_pid, ppid: p.kp_eproc.e_ppid, tty: ttyDevice(p.kp_eproc.e_tdev), name: name)
+        }
     }
 
     /// Suspended state and controlling terminal, from one `kinfo_proc` read.
@@ -118,19 +144,44 @@ extension Proc {
         return (listening, established)
     }
 
+    /// Bound UDP sockets of one process (UDP has no "listening" state: every bound local port counts).
+    public static func udpSockets(_ pid: pid_t) -> [BoundPort] {
+        let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+        guard bytes > 0 else { return [] }
+        let stride = MemoryLayout<proc_fdinfo>.stride
+        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(bytes) / stride + 16)
+        let got = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, Int32(fds.count * stride))
+        guard got > 0 else { return [] }
+        var out: [BoundPort] = []
+        for fd in fds.prefix(Int(got) / stride) where fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
+            var si = socket_fdinfo()
+            let siSize = Int32(MemoryLayout<socket_fdinfo>.size)
+            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &si, siSize) == siSize,
+                  si.psi.soi_kind == SOCKINFO_IN, si.psi.soi_protocol == IPPROTO_UDP else { continue }
+            let ini = si.psi.soi_proto.pri_in
+            let port = Int(UInt16(bigEndian: UInt16(truncatingIfNeeded: ini.insi_lport)))
+            guard port > 0 else { continue }
+            let v4 = ini.insi_vflag & UInt8(INI_IPV4) != 0
+            let exposure = v4 ? Exposure(ipv4: ini.insi_laddr.ina_46.i46a_addr4) : Exposure(ipv6: ini.insi_laddr.ina_6)
+            let address = v4 ? ntop(AF_INET, ini.insi_laddr.ina_46.i46a_addr4) : ntop(AF_INET6, ini.insi_laddr.ina_6)
+            out.append(BoundPort(port: port, exposure: exposure, address: address))
+        }
+        return out
+    }
+
     /// Environment strings (`NAME=value`) of an own process. CLI only (`ports list --env`); the app never reads them.
     public static func environment(_ pid: pid_t) -> [String] { procArgs(pid).env }
 
     static func procArgs(_ pid: pid_t) -> (args: [String], env: [String]) {
-        var argmax: Int32 = 0
-        var size = MemoryLayout<Int32>.size
-        var mib = [CTL_KERN, KERN_ARGMAX]
-        guard sysctl(&mib, 2, &argmax, &size, nil, 0) == 0 else { return ([], []) }
-        var buf = [UInt8](repeating: 0, count: Int(argmax))
-        size = buf.count
-        mib = [CTL_KERN, KERN_PROCARGS2, pid]
-        guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0 else { return ([], []) }
-        return parseProcArgs(Array(buf.prefix(size)))
+        // Ask for the exact size first (usually a few KB) instead of a KERN_ARGMAX (1 MB) buffer per call,
+        // which fragmented the heap of the long-running app.
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return ([], []) }
+        return [UInt8](unsafeUninitializedCapacity: size) { buf, initialized in
+            var n = size
+            initialized = sysctl(&mib, 3, buf.baseAddress, &n, nil, 0) == 0 ? n : 0
+        }.withUnsafeBufferPointer { parseProcArgs(Array($0)) }
     }
 }
 
@@ -206,7 +257,9 @@ public final class ProcessCache: @unchecked Sendable {
         seen.insert(k)
         if let a = ancestors[k] { lock.unlock(); return a }
         lock.unlock()
-        let a = Ancestor(pid: pid, name: bi.name, exe: Proc.exePath(pid))
+        let argv0 = Proc.arguments(pid).first.map { basename($0) }
+        let a = Ancestor(pid: pid, name: bi.name, exe: Proc.exePath(pid), command: argv0.flatMap { $0.isEmpty ? nil : $0 },
+                         uid: bi.uid)
         lock.lock(); ancestors[k] = a; lock.unlock()
         return a
     }
@@ -220,6 +273,23 @@ public final class ProcessCache: @unchecked Sendable {
     }
 
     public var count: Int { lock.lock(); defer { lock.unlock() }; return statics.count }
+
+    // MARK: Quiet processes (no listening socket at the last check)
+
+    private var quiet: [pid_t: Date] = [:]
+
+    /// PIDs to skip in this scan: checked recently and listening on nothing then. Exited PIDs are forgotten.
+    /// shortcut: keyed by PID only, so a process that starts listening late, or a new process reusing a quiet PID,
+    /// shows up within `seconds` (closed panel only); key by start time if that latency ever matters.
+    func quietPIDs(olderThan seconds: TimeInterval, live: [pid_t], now: Date = Date()) -> Set<pid_t> {
+        lock.lock(); defer { lock.unlock() }
+        let alive = Set(live)
+        quiet = quiet.filter { alive.contains($0.key) }
+        guard seconds > 0 else { return [] }
+        return Set(quiet.filter { now.timeIntervalSince($0.value) < seconds }.keys)
+    }
+    func markQuiet(_ pid: pid_t, now: Date = Date()) { lock.lock(); quiet[pid] = now; lock.unlock() }
+    func markListening(_ pid: pid_t) { lock.lock(); quiet[pid] = nil; lock.unlock() }
 }
 
 // MARK: - CPU %

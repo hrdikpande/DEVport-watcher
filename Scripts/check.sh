@@ -1,0 +1,60 @@
+#!/bin/zsh
+# Every phase gate in one run (autopilot §5). Prints one line per gate: pass / FAIL / skipped / manual.
+#
+#   ./Scripts/check.sh            # all gates
+#   ./Scripts/check.sh --quick    # builds and tests only
+#
+# Exits non-zero if any gate FAILs. "skipped" and "manual" never count as passed.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+
+QUICK=0
+[[ "${1:-}" == "--quick" ]] && QUICK=1
+failed=0
+report() { printf '%-28s %s\n' "$1" "$2"; if [[ "$2" == FAIL* ]]; then failed=1; fi; return 0; }
+warnings() { grep -E 'warning:|error:' | grep -vc 'ld: warning: search path' ; }
+
+touch Sources/*/*.swift Tests/PortsCoreTests/*.swift
+n=$(swift build -c release 2>&1 | warnings)
+(( n == 0 )) && report "swift build -c release" "pass (0 warnings)" || report "swift build -c release" "FAIL ($n warnings/errors)"
+touch Sources/*/*.swift Tests/PortsCoreTests/*.swift
+n=$(swift build --build-tests 2>&1 | warnings)
+(( n == 0 )) && report "swift build --build-tests" "pass (0 warnings)" || report "swift build --build-tests" "FAIL ($n warnings/errors)"
+
+runs=() ok=1 fails=""
+for i in 1 2 3 4 5; do
+  out=$(swift test 2>&1)
+  line=$(print -r -- "$out" | grep -E 'Test run with')
+  [[ "$line" == *passed* ]] || fails+=$(print -r -- "$out" | grep -E 'recorded an issue|↳' | grep -v -E 'Target Platform|Testing Library')$'\n'
+  runs+="$line"
+  [[ "$line" == *passed* ]] || ok=0
+done
+count=$(print -r -- "${runs[1]}" | sed -E 's/.*with ([0-9]+) tests.*/\1/')
+(( ok )) && report "swift test ×5" "pass ($count tests each)" || { report "swift test ×5" "FAIL"; print -rl -- $runs; print -r -- "$fails"; }
+
+if (( QUICK )); then exit $failed; fi
+
+./Scripts/build_app.sh --no-install >/dev/null 2>&1 && report "build_app.sh --no-install" "pass" || report "build_app.sh --no-install" "FAIL"
+out=$(./Scripts/dev_harness.sh --check 2>&1); rc=$?
+(( rc == 0 )) && report "dev_harness.sh --check" "pass" || { report "dev_harness.sh --check" "FAIL"; print -r -- "$out" | grep FAIL; }
+report "dev_harness --with-launchd" "manual: owner runs dev_harness.sh --with-launchd --check"
+out=$(./Scripts/ui_smoke.sh 2>&1); rc=$?
+case $rc in
+  0) report "ui_smoke.sh" "pass" ;;
+  77) report "ui_smoke.sh" "skipped (no Accessibility permission)" ;;
+  78) report "ui_smoke.sh" "manual: app alive + panel opens; rows need an owner VoiceOver check" ;;
+  *) report "ui_smoke.sh" "FAIL"; print -r -- "$out" | tail -n 15 ;;
+esac
+out=$(./Scripts/perf_check.sh --idle-cpu 120 2>&1); rc=$?
+summary=$(print -r -- "$out" | grep -E 'footprint|idle CPU|PASSED|FAIL' | sed 's/^ *//' | tr '\n' ' ')
+(( rc == 0 )) && report "perf_check.sh" "pass: $summary" || report "perf_check.sh" "FAIL: $summary"
+out=$(./Scripts/perf_check.sh --idle-cpu 120 --no-harness 2>&1); rc=$?
+summary=$(print -r -- "$out" | grep -E 'idle CPU|FAIL' | tr '\n' ' ')
+(( rc == 0 )) && report "perf_check.sh (no harness)" "pass: $summary" || report "perf_check.sh (no harness)" "FAIL: $summary"
+
+priv=$( { grep -rniE 'hardik|/Users/[a-z]' Tests Sources | grep -v '/Users/test' | grep -v 'Sources/PortsCore/Brand.swift'; grep -rn '/Users/' Tests | grep -v '/Users/test/'; \
+          grep -rn -E '\bkill\(' Sources | grep -v 'Sources/PortsCore/Actions/'; \
+          grep -rln -E 'Process\(\)|posix_spawn|NSTask' Sources | grep -v 'Sources/PortsCore/Exec.swift'; \
+          grep -rn 'URLSession' Sources | grep -v 'Sources/PortsApp/SystemServices.swift'; } 2>/dev/null )
+[[ -z "$priv" ]] && report "privacy/safety grep" "pass" || { report "privacy/safety grep" "FAIL"; print -r -- "$priv"; }
+exit $failed

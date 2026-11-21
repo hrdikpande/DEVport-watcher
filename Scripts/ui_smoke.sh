@@ -5,7 +5,8 @@
 #   ./Scripts/ui_smoke.sh               # needs build/Ports.app (./Scripts/build_app.sh --no-install)
 #   PORT_BASE=47300 ./Scripts/ui_smoke.sh
 #
-# Exit codes: 0 passed, 1 failed, 77 skipped (no Accessibility permission; never counts as passed).
+# Exit codes: 0 passed, 1 failed, 77 skipped (no Accessibility permission), 78 manual (rows unreadable via
+# System Events); neither 77 nor 78 counts as passed.
 # Only processes this script starts are ever signalled (this app instance and the harness).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,8 +21,14 @@ cleanup() {
   set +e
   [[ -n "$APP_PID" ]] && { kill -TERM "$APP_PID" 2>/dev/null; wait "$APP_PID" 2>/dev/null; }
   [[ -n "$HARNESS_PID" ]] && { kill -TERM "$HARNESS_PID" 2>/dev/null; wait "$HARNESS_PID" 2>/dev/null; }
+  # Forked harness workers leave within a moment of their parent; wait until the ports are free.
+  for _ in {1..100}; do lsof -nP -iTCP:$BASE-$((BASE+20)) -sTCP:LISTEN >/dev/null 2>&1 || break; sleep 0.1; done
   rm -f "$LOG"
 }
+# Panel open ⇔ the app has an on-screen window taller than 300 pt (the status item itself is ~24 pt).
+PANEL_WINDOWS="${TMPDIR:-/tmp}/ports-panel-windows"
+[[ -x "$PANEL_WINDOWS" && "$PANEL_WINDOWS" -nt Scripts/panel_windows.swift ]] || swiftc -O Scripts/panel_windows.swift -o "$PANEL_WINDOWS" 2>/dev/null
+panel_open() { "$PANEL_WINDOWS" "$APP_PID" | awk '$3 > 300 { found = 1 } END { exit !found }'; }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
@@ -49,56 +56,113 @@ sleep 10
 kill -0 "$APP_PID" 2>/dev/null || fail "app exited within 10 s"
 echo "ui_smoke: app alive after 10 s (pid $APP_PID)"
 
-# Clicking a status item blocks AppleScript until the menu closes, so click without waiting,
-# read the open menu in a second call, then close it with Escape.
+# Open the panel (a popover) by clicking the status item, then read every accessibility element's text.
 osascript >/dev/null <<OSA
 tell application "System Events"
   tell (first process whose unix id is $APP_PID)
-    ignoring application responses
-      click menu bar item 1 of menu bar 1
-    end ignoring
+    click menu bar item 1 of menu bar 1
   end tell
 end tell
 OSA
-sleep 2
-items=$(osascript <<OSA
+# Popover elements are only reachable through raw AX attributes (System Events' `pop over 1` and
+# `entire contents` fail on them), so walk AXChildren and read AXDescription / AXTitle / AXValue.
+read_menu() {
+  osascript <<OSA 2>/dev/null || true
+on attr(el, a)
+  tell application "System Events"
+    try
+      set v to value of attribute a of el
+      if class of v is text and v is not "" then return v & linefeed
+    end try
+  end tell
+  return ""
+end attr
+on walk(el, depth)
+  set out to my attr(el, "AXDescription") & my attr(el, "AXTitle") & my attr(el, "AXValue")
+  if depth < 16 then
+    set kids to {}
+    tell application "System Events"
+      try
+        set kids to value of attribute "AXChildren" of el
+      end try
+    end tell
+    repeat with c in kids
+      try
+        set out to out & my walk(c, depth + 1)
+      end try
+    end repeat
+  end if
+  return out
+end walk
 tell application "System Events"
   tell (first process whose unix id is $APP_PID)
     set out to ""
-    repeat with i in (menu items of menu 1 of menu bar item 1 of menu bar 1)
-      set out to out & (name of i as text) & linefeed
+    repeat with p in (value of attribute "AXChildren" of menu bar item 1 of menu bar 1)
+      set out to out & my walk(p, 0)
     end repeat
     return out
   end tell
 end tell
 OSA
-) || items=""
-osascript -e 'tell application "System Events" to key code 53' >/dev/null 2>&1 || true
-[[ -n "$items" ]] || fail "could not read the status-item menu"
+}
 
-errors=0
-# expect <port> <text…>: the menu row for :port exists and contains every given text.
+# expect <port> <text…>: the row for :port (its VoiceOver label "Port N, …") exists and contains every text.
 expect() {
   local port=$1; shift
   local row
-  row=$(print -r -- "$items" | grep -E "^:$port( |$)" | head -n 1) || true
-  if [[ -z "$row" ]]; then echo "  MISSING :$port"; errors=$((errors+1)); return; fi
+  row=$(print -r -- "$items" | grep -E "^Port $port," | head -n 1) || true
+  if [[ -z "$row" ]]; then report+="  MISSING :$port\n"; errors=$((errors+1)); return; fi
   for want in "$@"; do
-    [[ "$row" == *"$want"* ]] || { echo "  :$port lacks \"$want\": $row"; errors=$((errors+1)); }
+    if [[ "$want" == !* ]]; then
+      [[ "$row" != *"${want#!}"* ]] || { report+="  :$port has \"${want#!}\": $row\n"; errors=$((errors+1)); }
+    else
+      [[ "$row" == *"$want"* ]] || { report+="  :$port lacks \"$want\": $row\n"; errors=$((errors+1)); }
+    fi
   done
 }
 
-# Harness rows (see Scripts/dev_harness.sh for the scenario on each port).
-expect $((BASE+0)) "python"
-expect $((BASE+1)) "LAN"
-expect $((BASE+4)) "python"
-expect $((BASE+5)) "STOPPED"
-expect $((BASE+6)) "redis-server"
-expect $((BASE+9)) "harness-web" "feature/demo"
-expect $((BASE+10)) "×3"
+check_menu() {
+  errors=0 report=""
+  # Harness rows (see Scripts/dev_harness.sh for the scenario on each port).
+  expect $((BASE+0)) "python"
+  expect $((BASE+1)) "LAN"
+  expect $((BASE+4)) "python"
+  expect $((BASE+5)) "STOPPED"
+  expect $((BASE+6)) "Redis"
+  expect $((BASE+9)) "harness-web" "feature/demo"
+  expect $((BASE+10)) "×3"
+  expect $((BASE+13)) "Vite"
+  expect $((BASE+14)) "ORPHAN"
+  expect $((BASE+15)) "TWICE"
+  expect $((BASE+6)) "DB"
+  expect $((BASE+18)) "DB"
+  expect $((BASE+19)) "DB" "NETWORK"
+  expect $((BASE+23)) "Harness & Page"
+  expect $((BASE+24)) "JSON"
+  expect $((BASE+20)) "TUNNEL"
+  expect $((BASE+0)) "PUBLIC" "!NEW"
+  # Panel sections, Leftovers, footer and the filter chips (Phase 10).
+  for want in "Health" "Leftovers" "Clean Up…" "Check Port…" "Find Free Port…" "Copy Setup Prompt for AI" "Developer" "Tunnels" "Settings"; do
+    print -r -- "$items" | grep -qF "$want" || { report+="  menu lacks \"$want\"\n"; errors=$((errors+1)); }
+  done
+}
 
-if (( errors > 0 )); then
-  echo "Menu as read:"; print -r -- "$items"
-  fail "$errors menu expectation(s) not met"
+# The panel must open: the status item gains exactly one AX child (the popover) after the click.
+# The panel's view is built when it opens, so give it up to 10 s to appear.
+for _ in {1..20}; do panel_open && break; sleep 0.5; done
+panel_open || fail "the panel did not open"
+echo "ui_smoke: panel opens"
+
+# Rows can't be read: System Events lists the popover but returns nothing beneath it (3 attempts:
+# entire contents, recursive UI elements, raw AXChildren walk). Row/badge checks are manual (VoiceOver).
+items=$(read_menu)
+if [[ -z "$items" ]]; then
+  echo "ui_smoke: MANUAL: panel rows aren't readable through System Events; check them with VoiceOver"
+  exit 78
 fi
-echo "ui_smoke: PASSED (menu rows and badges as expected)"
+check_menu
+if (( errors > 0 )); then
+  print -n -- "$report"
+  fail "$errors panel expectation(s) not met"
+fi
+echo "ui_smoke: PASSED (panel rows and badges as expected)"

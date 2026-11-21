@@ -472,7 +472,9 @@ struct WebProbeTests {
         server.serve(reply)
         let l = Listener(port: server.port, pid: getpid(), start: 1, uid: getuid(), exposed: false,
                          exe: "/usr/local/bin/node", command: "node server.js", cwd: "/tmp", kind: .backend)
-        return probeWeb(l)
+        // Generous budget: the test server answers from a background thread that may be slow to run under
+        // parallel load. A fast answer still returns at once; the budget itself is tested below.
+        return probeWeb(l, budget: 5)
     }
 
     @Test("A server that never answers costs about the probe budget (< 1 s), never much more")

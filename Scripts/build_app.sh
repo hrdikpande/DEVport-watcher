@@ -4,7 +4,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP="build/Ports.app"
-ARCHS=(--arch arm64 --arch x86_64)
+fail() { echo "build_app.sh: $*" >&2; exit 1; }
+# macOS 14+ needs no Swift back-deployment shims; skipping them also avoids CommandLineTools' arm64-only
+# libswiftCompatibility56.a breaking the x86_64 link of swift-argument-parser.
+ARCHS=(--arch arm64 --arch x86_64 -Xswiftc -runtime-compatibility-version -Xswiftc none)
 
 swift build -c release "${ARCHS[@]}"
 BIN_PATH="$(swift build -c release "${ARCHS[@]}" --show-bin-path)"
@@ -29,16 +32,41 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp "$BIN_PATH/PortsApp" "$APP_BIN"
 cp "$BIN_PATH/ports" "$CLI_BIN"
 cp Info.plist "$APP/Contents/Info.plist"
+plutil -replace CFBundleDevelopmentRegion -string en "$APP/Contents/Info.plist"
+if [[ -n "${VERSION:-}" ]]; then                 # release builds: VERSION=1.2.3 (from the git tag)
+  plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
+  plutil -replace CFBundleVersion -string "${BUILD_NUMBER:-$VERSION}" "$APP/Contents/Info.plist"
+fi
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# Localizable.xcstrings -> <lang>.lproj/Localizable.strings (CommandLineTools ship no xcstringstool).
+python3 - "$APP/Contents/Resources" <<'PY2'
+import json, os, sys
+cat = json.load(open("Localization/Localizable.xcstrings"))
+out = {}
+for key, entry in cat["strings"].items():
+    for lang, loc in entry.get("localizations", {}).items():
+        out.setdefault(lang, {})[key] = loc["stringUnit"]["value"]
+def esc(t): return t.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+for lang, strings in out.items():
+    d = os.path.join(sys.argv[1], lang + ".lproj"); os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "Localizable.strings"), "w", encoding="utf-8") as f:
+        for k in sorted(strings): f.write('"%s" = "%s";\n' % (esc(k), esc(strings[k])))
+PY2
+[[ -s "$APP/Contents/Resources/en.lproj/Localizable.strings" ]] || fail "no en.lproj/Localizable.strings"
 
-fail() { echo "build_app.sh: $*" >&2; exit 1; }
 for bin in "$APP_BIN" "$CLI_BIN"; do [[ -f "$bin" ]] || fail "missing $bin"; done
 cmp -s "$APP_BIN" "$CLI_BIN" && fail "$APP_BIN and $CLI_BIN are identical (one overwrote the other)"
 otool -L "$APP_BIN" | grep -q AppKit || fail "$APP_BIN does not link AppKit (is it the CLI?)"
 
-codesign --force --options runtime --sign - "$CLI_BIN"       # nested code is signed before the bundle
-codesign --force --options runtime --sign - "$APP"
+# Developer ID when DEVELOPER_ID_APPLICATION names an identity in the keychain ("Developer ID Application: …"),
+# otherwise ad-hoc (runs on this Mac; Gatekeeper blocks it elsewhere unless the user allows it).
+SIGN_ID="${DEVELOPER_ID_APPLICATION:-${DEVELOPER_ID:--}}"
+SIGN_FLAGS=(--force --options runtime --sign "$SIGN_ID")
+[[ "$SIGN_ID" != "-" ]] && SIGN_FLAGS+=(--timestamp)
+codesign "${SIGN_FLAGS[@]}" "$CLI_BIN"       # nested code is signed before the bundle
+codesign "${SIGN_FLAGS[@]}" "$APP"
 codesign --verify --strict "$APP"
+if [[ "$SIGN_ID" == "-" ]]; then echo "Signed ad-hoc (unsigned for distribution)"; else echo "Signed with $SIGN_ID"; fi
 
 for bin in "$APP_BIN" "$CLI_BIN"; do
   archs="$(lipo -archs "$bin")"
