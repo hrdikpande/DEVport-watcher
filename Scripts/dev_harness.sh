@@ -7,14 +7,28 @@
 #   ./Scripts/dev_harness.sh --check    # start, assert every row of `ports list`, clean up, verify no
 #                                       # listener is left; exits non-zero on any mismatch
 #   PORT_BASE=48000 ./Scripts/dev_harness.sh
+#   ./Scripts/dev_harness.sh --with-launchd --check   # owner-run only: adds a temporary LaunchAgent
+#                                       # (temp-dir plist, label io.github.hrdikpande.ports.harness.<random>,
+#                                       # bootstrap/bootout gui/$UID); refused when CI is set
 #
 # Everything runs from a temp dir with python3 only; only processes this script starts are signalled.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-MODE=${1:-}
+MODE="" WITH_LAUNCHD=0
+for arg in "$@"; do
+  case $arg in
+    --with-launchd) WITH_LAUNCHD=1 ;;
+    --serve|--check) MODE=$arg ;;
+    *) echo "usage: $0 [--serve|--check] [--with-launchd]" >&2; exit 64 ;;
+  esac
+done
+# --with-launchd (owner-run only, never on CI): adds a temporary LaunchAgent that must never be flagged.
+if (( WITH_LAUNCHD )) && [[ -n "${CI:-}" ]]; then echo "dev_harness: --with-launchd never runs when CI is set" >&2; exit 64; fi
+LAUNCHD_PREFIX="io.github.hrdikpande.ports.harness."
+LABEL=""
 BASE=${PORT_BASE:-47100}
-LAST=$((BASE+15))
+LAST=$((BASE + 15 + WITH_LAUNCHD))
 
 listening() { lsof -nP -iTCP:$BASE-$LAST -sTCP:LISTEN 2>/dev/null | tail -n +2; }
 
@@ -37,6 +51,7 @@ typeset -a PIDS
 # is gone. "No such process" is expected and ignored.
 cleanup() {
   set +e
+  [[ -n "$LABEL" ]] && launchctl bootout "gui/$UID/$LABEL" 2>/dev/null
   # Orphans this harness created on purpose: their PIDs were written when they started.
   for f in "$WORK"/*.pid(N); do PIDS+=$(<"$f"); done
   for p in $PIDS; do kill -CONT $p 2>/dev/null; kill -KILL $p 2>/dev/null; done
@@ -175,6 +190,30 @@ print 'import time\ntime.sleep(600)' > "$WORK/tsc"
 orphan tsc "$(command -v python3)" python3 "$WORK/tsc" -w
 say "  (no port) orphaned tsc -w: listed under Leftovers"
 
+if (( WITH_LAUNCHD )); then
+  # Leftovers of an earlier run that died before booting out its agent: only our own prefix.
+  for old in $(launchctl list | awk -v p="$LAUNCHD_PREFIX" 'index($3, p) == 1 { print $3 }'); do
+    launchctl bootout "gui/$UID/$old" 2>/dev/null || true
+  done
+  LABEL="$LAUNCHD_PREFIX$(openssl rand -hex 4)"
+  # The plist lives in the temp dir (never ~/Library/LaunchAgents), so nothing persists past bootout or logout.
+  cat > "$WORK/agent.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key><array>
+    <string>$(command -v python3)</string><string>$WORK/serve.py</string>
+    <string>http</string><string>127.0.0.1</string><string>$((BASE+16))</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+</dict></plist>
+PLIST
+  launchctl bootstrap "gui/$UID" "$WORK/agent.plist"
+  EXPECT_PORTS+=$((BASE+16))
+  say "$(printf '  :%-6s %s' $((BASE+16)) "LaunchAgent $LABEL (temporary, fixed reply): never ORPHAN")"
+fi
+
 # Wait until every scenario port listens (no fixed sleep), then suspend the Ctrl-Z scenario.
 want=${#${(u)EXPECT_PORTS}}
 up=0
@@ -228,6 +267,7 @@ if [[ "$MODE" == "--check" ]]; then
   expect $((BASE+14)) "ORPHAN" "!ORPHAN?" "!TWICE"
   expect $((BASE+9)) "TWICE" "!ORPHAN"
   expect $((BASE+15)) "TWICE" "!ORPHAN"
+  if (( WITH_LAUNCHD )); then expect $((BASE+16)) "!ORPHAN"; fi
   for b in 0 1 3 4 6 8 10 11 12 13; do expect $((BASE+b)) "!ORPHAN"; done
   tsc_pid=$(<"$WORK/tsc.pid")
   print -r -- "$FULL" | grep -qE "^  PID $tsc_pid  tsc  ORPHAN" \

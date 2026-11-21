@@ -111,19 +111,22 @@ public func diagnose(_ ls: [Listener], _ a: Analysis, _ input: DoctorInput) -> [
                             explanation: "A runtime's port proxy is running, but its engine didn't answer, so container names are missing.",
                             fix: nil))
     }
-    for l in ls where (l.baseKind == .frontend || l.baseKind == .backend) && l.exposure == .loopback {
-        let v4only = l.addresses.allSatisfy { !$0.contains(":") }, v6only = l.addresses.allSatisfy { $0.contains(":") }
-        if v4only && input.localhostIPv6First {
-            issues.append(Issue(id: "localhost-\(l.pid)-\(l.port)", severity: .info,
-                                title: ":\(l.port) listens on 127.0.0.1 only",
-                                explanation: "localhost resolves to ::1 first on this Mac, so some clients (Node 17+, curl) fail before trying 127.0.0.1. Use http://127.0.0.1:\(l.port) or bind ::1 too.",
-                                fix: nil))
-        } else if v6only && !input.localhostIPv6First {
-            issues.append(Issue(id: "localhost-\(l.pid)-\(l.port)", severity: .info,
-                                title: ":\(l.port) listens on ::1 only",
-                                explanation: "localhost resolves to 127.0.0.1 first on this Mac, so IPv4 clients can't reach it. Use http://[::1]:\(l.port) or bind 127.0.0.1 too.",
-                                fix: nil))
-        }
+    // localhost vs 127.0.0.1/::1: one issue per direction, listing the ports (not one per server).
+    let loopbackDev = ls.filter { ($0.baseKind == .frontend || $0.baseKind == .backend) && $0.exposure == .loopback }
+    func ports(_ xs: [Listener]) -> String { Set(xs.map(\.port)).sorted().prefix(8).map { ":\($0)" }.joined(separator: ", ") }
+    let v4only = loopbackDev.filter { l in l.addresses.allSatisfy { !$0.contains(":") } }
+    let v6only = loopbackDev.filter { l in l.addresses.allSatisfy { $0.contains(":") } }
+    if input.localhostIPv6First && !v4only.isEmpty {
+        issues.append(Issue(id: "localhost-v4", severity: .info,
+                            title: "\(v4only.count) server\(v4only.count == 1 ? "" : "s") listen\(v4only.count == 1 ? "s" : "") on 127.0.0.1 only",
+                            explanation: "localhost resolves to ::1 first on this Mac, so some clients (Node 17+, curl) fail before trying 127.0.0.1: \(ports(v4only)). Use 127.0.0.1 in URLs or bind ::1 too.",
+                            fix: nil))
+    }
+    if !input.localhostIPv6First && !v6only.isEmpty {
+        issues.append(Issue(id: "localhost-v6", severity: .info,
+                            title: "\(v6only.count) server\(v6only.count == 1 ? "" : "s") listen\(v6only.count == 1 ? "s" : "") on ::1 only",
+                            explanation: "localhost resolves to 127.0.0.1 first on this Mac, so IPv4 clients can't reach \(ports(v6only)). Use [::1] in URLs or bind 127.0.0.1 too.",
+                            fix: nil))
     }
     return issues.sorted { $0.severity > $1.severity }
 }

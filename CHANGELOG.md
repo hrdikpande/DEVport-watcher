@@ -8,6 +8,41 @@ All notable changes to this project will be documented here.
 - Added characterization tests and CI.
 - Added initial open-source governance documentation.
 
+### Phase 4 — orphans, coding agents, duplicates, doctor
+- "Started by": the first meaningful ancestor, from a data table of coding
+  agents (Claude Code, Cursor agent, Codex, Gemini, Aider, Antigravity,
+  Windsurf, Copilot, OpenCode, Kiro), editors, terminals, tmux/screen, pm2,
+  nodemon and launchd jobs.
+- Orphan verdicts (confirmed, likely, possible, not an orphan), each with
+  plain-English evidence and a Safe to stop? answer (green, yellow, red).
+  Signals:
+  - adopted by launchd without being a launchd job
+  - terminal session gone, or no terminal at all
+  - the agent that started it has exited
+  - another instance running, idle, or suspended
+
+  Never flagged: launchd jobs and brew services, pm2, containers, apps in
+  `/Applications`, anything a live terminal, editor or agent still runs, SSH
+  sessions, starred services.
+- Leftovers: orphaned watchers and MCP servers that hold no port (`tsc -w`,
+  `esbuild --watch`, vitest, …). They appear only when they meet the strict
+  rules.
+- Duplicate detection (same project and framework twice) with a TWICE badge
+  and Stop the Older One.
+- Health section from Doctor: orphans, duplicates, databases reachable from the
+  network, suspended or idle servers, a container runtime that doesn't answer,
+  and localhost resolving to ::1 while a server binds only 127.0.0.1 (or the
+  reverse).
+- Clean Up Leftovers… lists exactly what will be signalled. Confirmed
+  orphans are checked and likely ones are opt-in. It uses the same stop core
+  as everything else (StopRegistry, identity check, SIGKILL only for dev
+  servers).
+- Star (never flag as orphan), Copy Setup Prompt for AI, and ORPHAN/TWICE
+  badges in the menu and in `ports list`.
+- `Scripts/check.sh` runs every gate. The harness gained an orphan, a
+  duplicate, an orphaned `tsc -w`, and an owner-run `--with-launchd`
+  LaunchAgent scenario.
+
 ### Phase 3 — detection and classification
 - Framework table (`Frameworks.swift`) with about 120 entries: frontend
   tools, backend frameworks, databases and brokers, tunnels, AI servers. Each

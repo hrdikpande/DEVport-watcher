@@ -62,8 +62,8 @@ tell application "System Events"
   end tell
 end tell
 OSA
-sleep 2
-items=$(osascript <<OSA
+read_menu() {
+  osascript <<OSA 2>/dev/null || true
 tell application "System Events"
   tell (first process whose unix id is $APP_PID)
     set out to ""
@@ -74,39 +74,51 @@ tell application "System Events"
   end tell
 end tell
 OSA
-) || items=""
-osascript -e 'tell application "System Events" to key code 53' >/dev/null 2>&1 || true
-[[ -n "$items" ]] || fail "could not read the status-item menu"
+}
 
-errors=0
 # expect <port> <text…>: the menu row for :port exists and contains every given text.
 expect() {
   local port=$1; shift
   local row
   row=$(print -r -- "$items" | grep -E "^:$port( |$)" | head -n 1) || true
-  if [[ -z "$row" ]]; then echo "  MISSING :$port"; errors=$((errors+1)); return; fi
+  if [[ -z "$row" ]]; then report+="  MISSING :$port\n"; errors=$((errors+1)); return; fi
   for want in "$@"; do
-    [[ "$row" == *"$want"* ]] || { echo "  :$port lacks \"$want\": $row"; errors=$((errors+1)); }
+    [[ "$row" == *"$want"* ]] || { report+="  :$port lacks \"$want\": $row\n"; errors=$((errors+1)); }
   done
 }
 
-# Harness rows (see Scripts/dev_harness.sh for the scenario on each port).
-expect $((BASE+0)) "python"
-expect $((BASE+1)) "LAN"
-expect $((BASE+4)) "python"
-expect $((BASE+5)) "STOPPED"
-expect $((BASE+6)) "Redis"
-expect $((BASE+9)) "harness-web" "feature/demo"
-expect $((BASE+10)) "×3"
-expect $((BASE+13)) "Vite"
-expect $((BASE+14)) "ORPHAN"
-expect $((BASE+15)) "TWICE"
-# Phase 4: the Health section and Leftovers appear in the menu.
-for want in "Health ·" "Leftovers ·" "Clean Up Leftovers…" "Copy Setup Prompt for AI"; do
-  print -r -- "$items" | grep -qF "$want" || { echo "  menu lacks \"$want\""; errors=$((errors+1)); }
-done
+check_menu() {
+  errors=0 report=""
+  # Harness rows (see Scripts/dev_harness.sh for the scenario on each port).
+  expect $((BASE+0)) "python"
+  expect $((BASE+1)) "LAN"
+  expect $((BASE+4)) "python"
+  expect $((BASE+5)) "STOPPED"
+  expect $((BASE+6)) "Redis"
+  expect $((BASE+9)) "harness-web" "feature/demo"
+  expect $((BASE+10)) "×3"
+  expect $((BASE+13)) "Vite"
+  expect $((BASE+14)) "ORPHAN"
+  expect $((BASE+15)) "TWICE"
+  # Phase 4: the Health section and Leftovers appear in the menu.
+  for want in "Health ·" "Leftovers ·" "Clean Up Leftovers…" "Copy Setup Prompt for AI"; do
+    print -r -- "$items" | grep -qF "$want" || { report+="  menu lacks \"$want\"\n"; errors=$((errors+1)); }
+  done
+}
 
+# The menu opens from cache and fills in as the open-menu scan lands: re-read until it matches (30 s cap).
+items="" errors=1
+for _ in {1..30}; do
+  sleep 1
+  items=$(read_menu)
+  [[ -n "$items" ]] || continue
+  check_menu
+  (( errors == 0 )) && break
+done
+osascript -e 'tell application "System Events" to key code 53' >/dev/null 2>&1 || true
+[[ -n "$items" ]] || fail "could not read the status-item menu"
 if (( errors > 0 )); then
+  print -n -- "$report"
   echo "Menu as read:"; print -r -- "$items"
   fail "$errors menu expectation(s) not met"
 fi

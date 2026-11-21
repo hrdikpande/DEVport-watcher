@@ -113,3 +113,19 @@ New Phase 1 tests live in `Tests/PortsCoreTests/Phase1Tests.swift`.
 - ui_smoke reads only top-level menu rows. The Customize submenu was checked by
   build only.
 
+## Found during Phase 4
+
+- Launchd job detection uses `launchctl list` (your user's jobs), through
+  `Exec.run`. It runs only when something was adopted by launchd, at most every
+  30 s, and only while the menu is open.
+- Claude Code's kernel process name is its version number (e.g. `2.1.329`), so
+  starters match argv[0], which is readable for your own processes.
+- The /usr/bin python3 and perl shims re-exec and drop a fake argv[0]. Harness
+  scenarios name tools by script instead.
+- An SSH login's tree tops out at a root-owned `sshd`. That isn't adoption, so
+  it is never flagged.
+- Bind-probe ("invisible owner") and watched-port Doctor issues need Phase 5
+  and Phase 10.
+- The `--with-launchd` harness scenario is owner-run only. The auto-mode
+  classifier blocks the agent from registering LaunchAgents.
+

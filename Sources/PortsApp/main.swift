@@ -119,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var stopAlerts: [String: NSWindow] = [:]     // the one open alert of each running stop flow
     var menuOpen = false
     var scanning = false
+    var pendingFullRefresh = false      // the menu opened while a background scan was running
     var filter = Filter(rawValue: UserDefaults.standard.integer(forKey: "filter")) ?? .developer {
         didSet { UserDefaults.standard.set(filter.rawValue, forKey: "filter"); render() }
     }
@@ -145,7 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Scan in the background, then apply on the main thread (also while the menu is open).
     func refresh(withDocker: Bool) {
-        guard !scanning else { return }
+        guard !scanning else { if withDocker { pendingFullRefresh = true }; return }
         scanning = true
         let cachedDocker = docker, cachedReachable = dockerReachable
         let probe = withDocker && menuOpen          // web probes run only while the menu is open
@@ -169,16 +170,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             var input = DoctorInput()
             input.dockerReachable = reachable
             input.localhostIPv6First = ipv6First
-            let a = analyze(result, starred: self.overrides.starred, includeLeftovers: probe, doctor: input,
-                            jobsMaxAge: probe ? 30 : .infinity)
+            // Verdicts need the launchd job list, which is read only while the menu is open, so a closed-menu
+            // scan keeps the last analysis instead of guessing.
+            let a: Analysis? = probe ? analyze(result, starred: self.overrides.starred, includeLeftovers: true, doctor: input) : nil
             RunLoop.main.perform(inModes: [.common]) {
                 MainActor.assumeIsolated {
                     self.scanning = false
+                    defer {
+                        if self.pendingFullRefresh { self.pendingFullRefresh = false; self.refresh(withDocker: true) }
+                    }
                     self.docker = map
                     self.dockerReachable = reachable
-                    let changed = result != self.listeners || a.issues != self.analysis.issues
-                        || a.leftovers != self.analysis.leftovers || a.verdicts != self.analysis.verdicts
-                    self.analysis = a
+                    var changed = result != self.listeners
+                    if let a {
+                        changed = changed || a.issues != self.analysis.issues || a.leftovers != self.analysis.leftovers
+                            || a.verdicts != self.analysis.verdicts
+                        self.analysis = a
+                    }
                     guard changed else { return }                      // nothing changed: don't touch the UI
                     self.listeners = result
                     self.render()

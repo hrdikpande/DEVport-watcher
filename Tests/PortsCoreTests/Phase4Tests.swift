@@ -79,7 +79,7 @@ func ctx(jobs: [pid_t: String] = [:], ttys: Set<Int32> = [], dup: [String] = [],
          exited: [String: Starter] = [:], starred: Set<String> = []) -> OrphanContext {
     var c = OrphanContext()
     c.launchdJobs = jobs; c.liveTTYs = ttys; c.duplicates = Set(dup); c.idleSince = idle; c.exitedStarters = exited
-    c.starred = starred; c.now = Date(timeIntervalSince1970: 10_000); c.idleThreshold = 1800; c.home = "/Users/test"
+    c.starred = starred; c.now = Date(timeIntervalSince1970: 10_000); c.idleThreshold = 1800; c.home = "/Users/test/home"
     return c
 }
 
@@ -112,6 +112,10 @@ let verdictCases: [VerdictCase] = [
           listener: server(chain: [launchd], exe: "/Applications/Demo.app/Contents/Resources/node",
                            argv: ["node", "/tmp/demo-shop/server.js"]), ctx: ctx(),
           level: .confirmed, safe: .green, evidence: "adopted it"),
+    .init(name: "macOS system process adopted by launchd (ControlCenter) → never flagged",
+          listener: server(port: 5000, chain: [launchd], kind: .system,
+                           exe: "/System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter", argv: ["ControlCenter"]),
+          ctx: ctx(), level: .notOrphan, safe: .red, evidence: "macOS system process"),
     .init(name: "starred → never flagged", listener: adopted, ctx: ctx(starred: [serviceSignature(adopted)]),
           level: .notOrphan, safe: .red, evidence: "starred"),
     .init(name: "agent still running it → red",
@@ -317,7 +321,8 @@ struct DoctorTests {
         #expect(ids.contains("stopped-800-4000"))
         #expect(ids.contains("idle-800-4000"))
         #expect(ids.contains("docker"))
-        #expect(ids.contains("localhost-500-3000"))                    // 127.0.0.1 only while localhost → ::1
+        #expect(ids.contains("localhost-v4"))                           // 127.0.0.1 only while localhost → ::1
+        #expect(issues.filter { $0.id.hasPrefix("localhost") }.count == 1)  // one issue, not one per server
         #expect(issues.allSatisfy { !$0.explanation.isEmpty })
         #expect(diagnose([], Analysis(), DoctorInput()).isEmpty)
     }
@@ -326,7 +331,7 @@ struct DoctorTests {
     func ipv6Only() {
         var l = server(chain: [anc(60, "unknown-host")], tty: 7)
         l.addresses = ["::1"]
-        #expect(diagnose([l], Analysis(), DoctorInput()).map(\.id) == ["localhost-500-3000"])
+        #expect(diagnose([l], Analysis(), DoctorInput()).map(\.id) == ["localhost-v6"])
     }
 
     @Test("analyze() never runs launchctl with an injected job list and tags a brew service as not an orphan")

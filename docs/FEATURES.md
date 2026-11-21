@@ -23,8 +23,8 @@ marked `have` describe current behavior; numbered items are planned phases.
 - [x] Large data-driven framework table (3)
 - [x] Confidence scores and safety tiers (3)
 - [x] Project root, monorepo, and Git branch detection incl. worktrees (2)
-- [ ] Launcher, editor, terminal, and coding-agent attribution (4)
-- [ ] Duplicate-instance detection (4)
+- [x] Launcher, editor, terminal, and coding-agent attribution (4)
+- [x] Duplicate-instance detection, Stop the older one (4)
 - [x] User classification overrides: rename, move, link, note, favorite, hide, mute (3; Settings table in 10)
 - [x] Application icons and project favicons (3)
 
@@ -37,9 +37,9 @@ marked `have` describe current behavior; numbered items are planned phases.
 - [x] Multi-worker collapse into one row with a worker count (2)
 - [x] Environment names with secret values masked, CLI only (`ports list --env`) (2)
 - [ ] Process tree and supervisor-aware stopping (5)
-- [ ] Orphan verdicts and leftovers without ports (4)
-- [ ] Bulk cleanup with confirmation (4)
-- [ ] Health/Doctor section (4)
+- [x] Orphan verdicts with evidence, Safe to stop?, star, leftovers without ports (4)
+- [x] Bulk cleanup with confirmation (4)
+- [x] Health/Doctor section (4; bind-probe and watched-port issues arrive with 5 and 10)
 - [x] Copy start command (2)
 - [ ] Run in Terminal (5)
 
@@ -78,3 +78,4 @@ marked `have` describe current behavior; numbered items are planned phases.
 - [ ] MCP server with safe-stop gating (11)
 - [ ] Universal binary and notarized release (12)
 - [x] Swift package, tests, CI, and governance files (Phase 0)
+- [x] Copy setup prompt for AI (4)

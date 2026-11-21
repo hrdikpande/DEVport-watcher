@@ -58,6 +58,7 @@ public func analyzeOrphan(_ l: Listener, starter: Starter, ctx: OrphanContext, d
     if let label = ctx.launchdJobs[l.pid] { return keep("Run by \(describeJob(label)); launchd may restart it.") }
     if starter.name == "pm2" { return keep("Managed by pm2, which restarts it.") }
     if l.baseKind == .docker || l.container != nil { return keep("Managed by the container runtime.") }
+    if l.baseKind == .system { return keep("A macOS system process.") }
     // A script runtime is judged by its script, not by where the runtime is installed.
     let judged = scriptArgument(exe: l.exe, argv: l.argv).map { $0.hasPrefix("/") ? $0 : l.cwd + "/" + $0 } ?? l.exe
     if judged.hasPrefix("/Applications/") || judged.hasPrefix(ctx.home + "/Applications/") || l.baseKind == .app {
