@@ -3,13 +3,23 @@
 Resume from this file if a session ends. Spec: `docs/IMPLEMENTATION_PROMPT.md`;
 run rules: `docs/AUTOPILOT_PROMPT.md`.
 
-## Current state
+## Current state (checkpoint 2026-11-21, owner asked to stop)
 
-- **Phase:** 3 (detection and classification), gates passed locally; PR open, waiting for CI
-- **Branch:** `phase-3` (from `phase-2`)
-- **PRs:** #5 phase-2 → main (CI green)
-- **Last commit:** see `git log -1 phase-2`
-- **Next step:** CI green on the Phase 3 PR, then create `phase-4` from `phase-3`.
+- **Phase 2:** done. Branch `phase-2`, draft PR #5 → main, CI green.
+- **Phase 3:** done. Branch `phase-3`, draft PR #6 → phase-2, CI green.
+- **Phase 4:** in progress on `phase-4` (from `phase-3`). The last commit is "phase-4: WIP checkpoint". Not pushed.
+  - Done: starter attribution (`Agents.swift`); orphan verdicts with evidence and Safe to stop?
+    (`Orphans.swift`); duplicates; idle and starter memory; leftovers without ports; bulk clean-up via
+    `stopAll` (StopRegistry + safe ladder); Doctor issues; AI setup prompt; Star; app Health, Leftovers,
+    ORPHAN/TWICE badges, Clean Up dialog; CLI badges and Leftovers; harness orphan, duplicate and leftover
+    scenarios (passed `--check`).
+  - Tests: 111 (17 new in `Phase4Tests.swift`).
+  - Remaining for Phase 4: run `build_app.sh`, `ui_smoke.sh` and `perf_check.sh`; update CHANGELOG,
+    FEATURES and NOTES; push; open the PR (base `phase-3`); wait for CI.
+- **Scan timing** (Phase 3, harness running): 2.9–3.7 ms warm, 627 processes.
+- **Next step:** `git checkout phase-4`, then
+  `./Scripts/build_app.sh --no-install && ./Scripts/ui_smoke.sh && ./Scripts/perf_check.sh`. Then do the
+  docs, `swift test` ×5, push and the PR.
 
 ## Decisions
 
@@ -36,6 +46,12 @@ Perf numbers come from `Scripts/perf_check.sh` (added in Phase 3), with the harn
   menu (an accessory app's status item lives in `menu bar 1`, not 2).
 
 ## Open issues
+
+- Phase 4: one `swift test` run of about 12 failed with 1 issue that I didn't capture. The next 9 runs passed.
+  Find it with a repeated run before pushing (suspects: the perl orphan test and the bulk stop test).
+- Phase 4: the auto-mode classifier blocked a harness scenario that registers a temporary LaunchAgent
+  (`launchctl bootstrap gui/<uid>`). Launchd-job exclusion is covered only by unit tests that use
+  `launchctl list` fixtures. Owner decision needed: allow it, or keep it out.
 
 - Memory gate is measured as physical footprint (Activity Monitor "Memory"), since raw RSS of any AppKit
   status-item app is ~50 MB of shared framework pages. Both numbers are recorded. Owner may overrule.
