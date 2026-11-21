@@ -49,18 +49,12 @@ done
 "$APP" -filter 0 >/dev/null 2>&1 &
 APP_PID=$!
 sleep 6
-for _ in 1 2 3; do
-  osascript >/dev/null 2>&1 <<OSA || true
-tell application "System Events" to tell (first process whose unix id is $APP_PID)
-  ignoring application responses
-    click menu bar item 1 of menu bar 1
-  end ignoring
-end tell
-OSA
-  sleep 3
-  osascript -e 'tell application "System Events" to key code 53' >/dev/null 2>&1 || true
-  sleep 2
-done
+click() {
+  osascript -e "tell application \"System Events\" to tell (first process whose unix id is $APP_PID) to click menu bar item 1 of menu bar 1" >/dev/null 2>&1 || true
+}
+for _ in 1 2 3; do click; sleep 3; click; sleep 2; done        # open the panel, then close it again
+open_now=$(osascript -e "tell application \"System Events\" to tell (first process whose unix id is $APP_PID) to count of (value of attribute \"AXChildren\" of menu bar item 1 of menu bar 1)" 2>/dev/null || echo "?")
+[[ "$open_now" == "0" ]] || echo "  note: panel may still be open ($open_now)"
 footprint=$(vmmap --summary "$APP_PID" 2>/dev/null | awk '/^Physical footprint:/ { print $3 }')
 rss=$(( $(ps -o rss= -p "$APP_PID") / 1024 ))
 echo "  app: physical footprint $footprint, RSS ${rss} MB (menu opened 3×)"

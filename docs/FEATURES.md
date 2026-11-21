@@ -9,10 +9,10 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 - [x] IPv6-only detection [have]
 - [x] Multi-worker collapse [2]
 - [ ] UDP listeners (CLI list + optional panel filter) [11]
-- [ ] Monitored range / excluded ports [10]
+- [x] Monitored range / excluded ports [10]
 - [x] Bind probe for invisible owners (Check Port…, `ports preflight`) [5]
-- [ ] Configurable refresh / pause [10]
-- [ ] Adaptive scanning: fast when open, slow when closed; sleep, wake and battery aware [10]
+- [x] Configurable refresh / pause [10]
+- [x] Adaptive scanning: fast when open, slow when closed; sleep, wake and battery aware [10]
 - [x] Known-port hints [3]
 - [x] DB protocol detection on non-standard ports [7]
 
@@ -21,7 +21,7 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 - [x] Large framework table [3]
 - [x] Confidence score [3]
 - [x] Who-started-it attribution [4]
-- [ ] Group rows by who started them [10]
+- [x] Group rows by who started them [10]
 - [x] Overrides: rename, move, link, label/note, favorite, hide, mute [3]
 - [x] App icon / project favicon [3]
 - [x] Safety tiers: blocked, warning, safe [3]
@@ -29,7 +29,7 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 ## Project context
 - [x] Project root from manifests, incl. monorepos [2]
 - [x] Git branch, incl. worktrees [2]
-- [ ] Filter / act on a project or directory [10, 11]
+- [ ] Filter / act on a project or directory [10, 11] (panel: search by project/branch done; CLI `--project/--dir` in 11)
 - [x] Duplicate-instance detection [4]
 
 ## Process detail
@@ -39,8 +39,8 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 - [x] Parent column [2]
 - [x] Env names with secret values masked (CLI) [2]; macOS 26 withholds other processes' environments, so the CLI says so
 - [x] Connection count / idle [2]
-- [ ] Sort by memory / uptime [10]
-- [ ] Started-since filter [10, 11]
+- [x] Sort by memory / uptime [10]
+- [ ] Started-since filter [10, 11] (panel: sort by uptime; CLI `--since` in 11)
 
 ## Orphans & agents
 - [x] Orphan verdicts with tiers [4]
@@ -105,27 +105,27 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 - [x] Web search for an unknown port [9]
 
 ## Interface
-- [ ] Status item count + issue dot [10]
-- [ ] Popover with search, filters, sort [10]
-- [ ] Keyboard navigation + VoiceOver [10]
-- [ ] NEW badge [10]
-- [ ] Global hot key [10]
-- [ ] Light/dark, localisation-ready [10]
-- [ ] Inline confirmations [10]
+- [x] Status item count + issue dot [10]
+- [x] Popover with search, filters, sort [10]
+- [x] Keyboard navigation + VoiceOver [10]
+- [x] NEW badge [10]
+- [x] Global hot key [10]
+- [x] Light/dark, localisation-ready [10]
+- [x] Inline confirmations [10]
 
 ## Organise
-- [ ] Hide a port / a process group [10] (hiding one row: done in [3])
+- [x] Hide a port / a process group [10] (hiding one row: done in [3])
 - [x] Favorites [3]
-- [ ] Per-port mute (notifications) [10] (stored since [3])
+- [x] Per-port mute (notifications) [10] (stored since [3])
 
 ## Notifications
-- [ ] Watched ports start / stop [10]
-- [ ] Watched port conflict [10]
-- [ ] New orphan / exposed DB / container stopped (opt-in) [10]
+- [x] Watched ports start / stop [10]
+- [x] Watched port conflict [10]
+- [x] New orphan / exposed DB / container stopped (opt-in) [10]
 
 ## History
-- [ ] Port appear/disappear history with retention [10]
-- [ ] Stop-action log [10]
+- [x] Port appear/disappear history with retention [10]
+- [x] Stop-action log [10]
 
 ## CLI & automation
 - [ ] `list --json` [11]
@@ -138,9 +138,9 @@ marked (CLI). A ticked item is implemented and tested. An item that can't be fin
 - [ ] MCP server with safe-stop gating [11]
 
 ## Settings
-- [ ] Launch at login [10]
-- [ ] Update check (opt-in) [10]
-- [ ] Uninstall [10]
+- [x] Launch at login [10]
+- [x] Update check (opt-in) [10]
+- [x] Uninstall [10]
 - [x] No telemetry [have]
 
 ## Distribution

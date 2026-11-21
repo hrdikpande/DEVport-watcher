@@ -161,15 +161,6 @@ enum UpdateCheck {
     static let lastKey = "updateCheck.last"
     static var currentVersion: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0" }
 
-    static func isNewer(_ tag: String, than current: String) -> Bool {
-        func parts(_ v: String) -> [Int] { v.trimmingCharacters(in: CharacterSet(charactersIn: "v")).split(separator: ".").map { Int($0) ?? 0 } }
-        let a = parts(tag), b = parts(current)
-        for i in 0..<max(a.count, b.count) where (i < a.count ? a[i] : 0) != (i < b.count ? b[i] : 0) {
-            return (i < a.count ? a[i] : 0) > (i < b.count ? b[i] : 0)
-        }
-        return false
-    }
-
     /// Calls `found` with the newer tag, if any. Runs at most once a day and only when enabled.
     static func runIfDue(enabled: Bool, force: Bool = false, found: @escaping @Sendable (String?) -> Void) {
         guard enabled else { return }
@@ -183,7 +174,7 @@ enum UpdateCheck {
         let current = currentVersion
         URLSession.shared.dataTask(with: req) { data, _, _ in
             let tag = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["tag_name"] as? String
-            found(tag.flatMap { isNewer($0, than: current) ? $0 : nil })
+            found(tag.flatMap { versionIsNewer($0, than: current) ? $0 : nil })
         }.resume()
     }
 }

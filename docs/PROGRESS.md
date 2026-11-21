@@ -7,26 +7,17 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 
 - **Branch:** `release-1`, local only. No pushes, PRs or CI (owner's rules for Phases 5–12). One commit per
   phase, "phase-N: <summary>". Phase 5 also has a first commit that splits PortsCore.swift.
-- **Done:** Phases 2–4 (merged into release-1), 5, 6, 7, 8 and 9.
-- **In progress: Phase 10** (uncommitted on release-1; never commit a failing phase). Sub-steps:
-  1. [done, untested] Core: `Store/Settings.swift` (all Phase 10 settings, tolerant decode), `Panel/PanelLogic.swift`
-     (filters, search, sort, "Started by" grouping, NEW keys, hidden ports/groups, custom matchers, status summary),
-     `Store/History.swift` (JSONL, retention, size cap), `SnapshotService.swift` (cadence, tolerance, notification decisions).
-  2. [done, unbuilt] App: `Prompter.swift` (inline prompts with alert fallback), `AppDelegate.swift` (status item, popover,
-     right-click menu, adaptive timer, sleep/wake/lock, battery, scan pipeline, history, notifications, hot key, settings
-     window), `Actions.swift` (every stop/customize/port/DB/QR flow, ported from the old NSMenu main.swift).
-  3. [todo] `PanelModel.swift` + `PanelView.swift` (SwiftUI: search, chips ⌘1–7, sort, Health, Favorites, sections, rows
-     with reserved badges, detail with all actions, Leftovers, footer, inline prompt, keyboard, VoiceOver, History sheet);
-     `RowContent.swift` (info lines and actions per row); `SettingsView.swift` (all tabs incl. Privacy);
-     `SystemServices.swift` (Notifier/UserNotifications, HotKey/Carbon, Power/IOKit, LoginItem/SMAppService,
-     CLIInstaller, UpdateCheck opt-in); new `main.swift` entry (old 1149-line NSMenu main.swift gets replaced).
-  4. [todo] Resources/Localizable.xcstrings + build_app.sh step converting it to en.lproj/Localizable.strings
-     (no xcstringstool here: CommandLineTools only); ui_smoke rewritten for the popover (AX labels "Port N, …");
-     check.sh privacy grep: allow URLSession only in UpdateCheck; perf_check --idle-cpu 120 gate.
-  5. [todo] Phase10Tests.swift for step 1; docs; check.sh; commit "phase-10: …".
+- **Done:** Phases 2–10.
+- **Next step:** Phase 11: the CLI on swift-argument-parser (every command with `--json`, schema, exit codes, UDP list)
+  and `ports mcp`, with stop off by default.
 - **Gate runner:** `./Scripts/check.sh`, which runs every gate and marks the LaunchAgent scenario "manual".
 
 ## Owner actions
+
+- VoiceOver check of the panel: open it (⌥⌘P), turn on VoiceOver (⌘F5) and confirm that each row reads
+  "Port N, name, category, badges…" and that buttons and filter chips are labelled. Why manual: System Events lists the
+  popover but returns no children beneath it (3 attempts). ui_smoke gate: manual (it still checks the app stays alive and
+  the panel opens).
 
 - Run `./Scripts/dev_harness.sh --with-launchd --check` (the agent may not register LaunchAgents) and report the
   result. Gate status: manual.
@@ -54,6 +45,7 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 | 7     | 0 warnings    | 0 warnings  | 152/152 ×5 | pass | pass (+ handshake DB, exposed DB) | pass | ≤ 4.7 ms | footprint 24.2 MB (RSS 67 MB) | n/a | local only |
 | 8     | 0 warnings    | 0 warnings  | 160/160 ×5 | pass | pass (+ ssh -L, kubectl, ngrok public URL) | pass | ≤ 4.9 ms | footprint 23.6 MB (RSS 66 MB) | n/a | local only |
 | 9     | 0 warnings    | 0 warnings  | 170/170 ×5 | pass | pass (+ title page, JSON API, HTTPS 200) | pass | ≤ 5.1 ms | footprint 25.7 MB (RSS 69 MB) | n/a | local only |
+| 10    | 0 warnings    | 0 warnings  | 187/187 ×5 | pass | pass | manual (alive + panel opens) | ≤ 6.1 ms | footprint 38.7 MB (RSS 117 MB) | 0.067 % / 120 s | local only |
 
 Phase 4 manual gate: **`dev_harness.sh --with-launchd --check` is manual. The owner runs it.** It is not
 "passed" until the owner reports it. Launchd-job exclusion is unit-tested with `launchctl list` fixtures.

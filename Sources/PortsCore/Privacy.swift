@@ -39,3 +39,14 @@ public let privacyProbes: [PrivacyProbe] = [
           whereTo: "api.github.com (the project's latest release)", timeout: "10 s",
           what: "The only request Ports ever makes to the internet. Nothing about your Mac is sent."),
 ]
+
+/// "v1.10.0" vs "1.9.2": numeric, component-wise; a leading "v" is ignored.
+public func versionIsNewer(_ tag: String, than current: String) -> Bool {
+    func parts(_ v: String) -> [Int] { v.trimmingCharacters(in: CharacterSet(charactersIn: "vV")).split(separator: ".").map { Int($0) ?? 0 } }
+    let a = parts(tag), b = parts(current)
+    for i in 0..<max(a.count, b.count) {
+        let x = i < a.count ? a[i] : 0, y = i < b.count ? b[i] : 0
+        if x != y { return x > y }
+    }
+    return false
+}

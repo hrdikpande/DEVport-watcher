@@ -8,6 +8,53 @@ All notable changes to this project will be documented here.
 - Added characterization tests and CI.
 - Added initial open-source governance documentation.
 
+### Phase 10 — panel, organisation, notifications, history, settings
+- The NSMenu is replaced by an NSStatusItem with a SwiftUI popover panel.
+  Right-click shows a small menu: Refresh, Pause Scanning, Settings…, Quit.
+- The status item shows the dev-listener count (or all, or none) and a red
+  dot for Doctor issues or a confirmed orphan; its tooltip summarises.
+- Panel, top to bottom:
+  - search (`/` or ⌘F) and filter chips (⌘1–⌘7)
+  - sort by category, port, project, uptime, memory or Started by
+  - Health, Favorites, category sections, Leftovers
+  - a footer with Check Port…, Find Free Port…, Clean Up…, History, Copy
+    Setup Prompt, Settings, runtime status and last scan time
+- Rows have reserved badges: NEW, LAN/NETWORK, ORPHAN, TWICE, STOPPED/PAUSED,
+  IDLE, CONTAINER, DB, TUNNEL, PUBLIC, JSON, ×N. They show HTTP status and
+  time, and uptime. Hover shows the Stop button.
+- Expanding a row shows every detail and action, plus Customize.
+- Inline confirmations replace modal alerts (bulk clean-up stays a modal, as
+  specified).
+- Selection: ⌘-click selects several rows to stop together. Option-click hides
+  a whole process group.
+- Keyboard: ↑/↓, ⏎, ⌫, Esc, ⌘K, ⌘,. Every row and control has a VoiceOver
+  label. Reduce Motion, light/dark and increased contrast are respected.
+- Notifications (UserNotifications, each type toggleable):
+  - watched port started, stopped or taken by something else (on by default)
+  - new orphan, exposed database, container stopped (opt-in)
+  - actions: Open, Copy Address, Stop
+- History in `history.jsonl`: ports appearing and disappearing, plus every
+  stop with who, what, method and result. 7-day retention, size-capped,
+  filterable History view, Clear History.
+- Settings window with these tabs: General, Scanning, Ports, Classification
+  (overrides table and custom matchers), Orphans, Databases, Containers,
+  Command Line & Agents, Privacy (every probe: when, where, timeout,
+  read-only) and About.
+  - General includes launch at login (SMAppService), the hot key (default
+    ⌥⌘P, Carbon, no Accessibility permission) and the opt-in daily update
+    check, the only internet request.
+  - Uninstall… removes the login item, CLI link and support folder, then
+    moves the app to the Trash.
+- Energy: timer tolerance ≥ 50 %. Scanning pauses while asleep or locked and
+  does a full rescan on wake or unlock; it runs 3× slower (or pauses, by
+  choice) on battery or Low Power Mode.
+  - Panel closed: sockets only.
+  - Panel open: 2 s scans with CPU sampling and probes.
+  - The panel is released when closed.
+- Strings are in `Localization/Localizable.xcstrings`; `build_app.sh`
+  converts them to `en.lproj`.
+- Fixed: argv reads allocated a 1 MB buffer each and fragmented the heap.
+
 ### Phase 9 — web probing (lightweight)
 - Rows read "200 · 34 ms · My App". The probe is one `GET /` after the
   scheme check: plain HTTP over a loopback socket, HTTPS through

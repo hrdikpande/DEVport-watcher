@@ -406,7 +406,20 @@ extension AppDelegate {
         case .favicon(let path): img = NSImage(contentsOfFile: path)
         case .symbol(let name): img = NSImage(systemSymbolName: name, accessibilityDescription: l.kind.title)
         }
-        if case .symbol = source {} else { img?.size = NSSize(width: 16, height: 16) }
+        // App icons and favicons carry many large representations: keep one 32 px bitmap instead.
+        // App icons and favicons carry many large representations: keep one 32 px bitmap instead.
+        if case .symbol = source {} else if let big = img,
+           let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 32, pixelsHigh: 32, bitsPerSample: 8, samplesPerPixel: 4,
+                                      hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) {
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            big.draw(in: NSRect(x: 0, y: 0, width: 32, height: 32))
+            NSGraphicsContext.restoreGraphicsState()
+            rep.size = NSSize(width: 16, height: 16)
+            let small = NSImage(size: NSSize(width: 16, height: 16))
+            small.addRepresentation(rep)
+            img = small
+        }
         icons[key] = img
         return img
     }

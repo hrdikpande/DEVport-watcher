@@ -79,6 +79,7 @@ struct PanelView: View {
                             .controlSize(.small)
                             .accessibilityLabel(L(f.title) + (model.filter == f ? ", " + L("selected") : ""))
                             .help("⌘\(f.rawValue + 1)")
+                            .accessibilityIdentifier("filter-\(f.rawValue)")
                     }
                 }
             }
@@ -165,6 +166,7 @@ struct SectionHeader: View {
             .background(.bar)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("section-\(title)")
     }
 }
 
@@ -219,6 +221,7 @@ struct RowView: View {
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(model.accessibilityLabel(l))
+            .accessibilityIdentifier("row-\(l.port)-\(l.pid)")
             .accessibilityHint(L("Shows details and actions"))
             .accessibilityAddTraits(.isButton)
             .accessibilityAction(named: L("Stop")) { app.stop(l) }

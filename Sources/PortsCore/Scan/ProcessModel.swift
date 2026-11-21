@@ -148,15 +148,15 @@ extension Proc {
     public static func environment(_ pid: pid_t) -> [String] { procArgs(pid).env }
 
     static func procArgs(_ pid: pid_t) -> (args: [String], env: [String]) {
-        var argmax: Int32 = 0
-        var size = MemoryLayout<Int32>.size
-        var mib = [CTL_KERN, KERN_ARGMAX]
-        guard sysctl(&mib, 2, &argmax, &size, nil, 0) == 0 else { return ([], []) }
-        var buf = [UInt8](repeating: 0, count: Int(argmax))
-        size = buf.count
-        mib = [CTL_KERN, KERN_PROCARGS2, pid]
-        guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0 else { return ([], []) }
-        return parseProcArgs(Array(buf.prefix(size)))
+        // Ask for the exact size first (usually a few KB) instead of a KERN_ARGMAX (1 MB) buffer per call,
+        // which fragmented the heap of the long-running app.
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return ([], []) }
+        return [UInt8](unsafeUninitializedCapacity: size) { buf, initialized in
+            var n = size
+            initialized = sysctl(&mib, 3, buf.baseAddress, &n, nil, 0) == 0 ? n : 0
+        }.withUnsafeBufferPointer { parseProcArgs(Array($0)) }
     }
 }
 

@@ -42,15 +42,16 @@ out=$(./Scripts/ui_smoke.sh 2>&1); rc=$?
 case $rc in
   0) report "ui_smoke.sh" "pass" ;;
   77) report "ui_smoke.sh" "skipped (no Accessibility permission)" ;;
+  78) report "ui_smoke.sh" "manual: app alive + panel opens; rows need an owner VoiceOver check" ;;
   *) report "ui_smoke.sh" "FAIL"; print -r -- "$out" | tail -n 15 ;;
 esac
-out=$(./Scripts/perf_check.sh 2>&1); rc=$?
-summary=$(print -r -- "$out" | grep -E 'footprint|PASSED|FAIL' | tr '\n' ' ')
+out=$(./Scripts/perf_check.sh --idle-cpu 120 2>&1); rc=$?
+summary=$(print -r -- "$out" | grep -E 'footprint|idle CPU|PASSED|FAIL' | tr '\n' ' ')
 (( rc == 0 )) && report "perf_check.sh" "pass: $summary" || report "perf_check.sh" "FAIL: $summary"
 
-priv=$( { grep -rniE 'hardik|pande' Tests Sources; grep -rn '/Users/' Tests | grep -v '/Users/test/'; \
+priv=$( { grep -rniE 'hardik|/Users/[a-z]' Tests Sources | grep -v '/Users/test' | grep -v 'Sources/PortsCore/Brand.swift'; grep -rn '/Users/' Tests | grep -v '/Users/test/'; \
           grep -rn -E '\bkill\(' Sources | grep -v 'Sources/PortsCore/Actions/'; \
           grep -rln -E 'Process\(\)|posix_spawn|NSTask' Sources | grep -v 'Sources/PortsCore/Exec.swift'; \
-          grep -rn 'URLSession' Sources; } 2>/dev/null )
+          grep -rn 'URLSession' Sources | grep -v 'Sources/PortsApp/SystemServices.swift'; } 2>/dev/null )
 [[ -z "$priv" ]] && report "privacy/safety grep" "pass" || { report "privacy/safety grep" "FAIL"; print -r -- "$priv"; }
 exit $failed

@@ -196,3 +196,23 @@ New Phase 1 tests live in `Tests/PortsCoreTests/Phase1Tests.swift`.
   harness covers it (python TLS server: HTTPS · 200). The unit test covers a
   TLS GET to a plain server failing within its deadline.
 
+## Found during Phase 10
+
+- System Events lists the popover but returns no children beneath it. I tried
+  three ways: `entire contents`, a recursive `UI elements` walk, and a raw
+  AXChildren walk. ui_smoke still checks that the app stays alive and the
+  panel opens. Row and badge checks are manual (VoiceOver); ui_smoke exits
+  with 78, which check.sh reports as "manual".
+- `.transient` popovers closed at once when macOS declined to activate the
+  accessory app. The panel uses `.applicationDefined` plus a global click
+  monitor and Esc.
+- Memory: the SwiftUI panel costs about 25 MB while open and leaves heap
+  fragmentation after it closes. The panel is now built on open and released
+  on close, icons are kept as 32 px bitmaps, and argv buffers are
+  right-sized. Footprint with the harness running is 38.7–40.2 MB against the
+  40 MB gate (thin margin); raw RSS is about 116 MB.
+- CommandLineTools ship no xcstringstool, so build_app.sh converts the
+  xcstrings catalog itself.
+- Idle CPU with the panel closed: 0.098 % over 120 s (gate < 0.1 %), with the
+  harness's 25 listeners being scanned every 10 s.
+

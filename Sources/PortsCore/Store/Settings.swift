@@ -108,6 +108,37 @@ public struct Settings: Codable, Equatable, Sendable {
         mcpAllowStop = get(.mcpAllowStop, d.mcpAllowStop)
     }
 
+
+    /// Explicit so `hotKey: nil` (off) is written as null and not read back as the default.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(protectedPorts, forKey: .protectedPorts)
+        try c.encode(databaseClients, forKey: .databaseClients)
+        try c.encode(statusDisplay, forKey: .statusDisplay)
+        try c.encode(hotKey, forKey: .hotKey)
+        try c.encode(updateCheck, forKey: .updateCheck)
+        try c.encode(refreshClosed, forKey: .refreshClosed)
+        try c.encode(refreshOpen, forKey: .refreshOpen)
+        try c.encode(pauseOnBattery, forKey: .pauseOnBattery)
+        try c.encode(monitoredLow, forKey: .monitoredLow)
+        try c.encode(monitoredHigh, forKey: .monitoredHigh)
+        try c.encode(excludedPorts, forKey: .excludedPorts)
+        try c.encode(hidePrivileged, forKey: .hidePrivileged)
+        try c.encode(hiddenPorts, forKey: .hiddenPorts)
+        try c.encode(hiddenGroups, forKey: .hiddenGroups)
+        try c.encode(favoritePorts, forKey: .favoritePorts)
+        try c.encode(watchedPorts, forKey: .watchedPorts)
+        try c.encode(mutedPorts, forKey: .mutedPorts)
+        try c.encode(customMatchers, forKey: .customMatchers)
+        try c.encode(idleThresholdMinutes, forKey: .idleThresholdMinutes)
+        try c.encode(showPossibleOrphans, forKey: .showPossibleOrphans)
+        try c.encode(dockerSocketOverride, forKey: .dockerSocketOverride)
+        try c.encode(notifications, forKey: .notifications)
+        try c.encode(historyRetentionDays, forKey: .historyRetentionDays)
+        try c.encode(mcpEnabled, forKey: .mcpEnabled)
+        try c.encode(mcpAllowStop, forKey: .mcpAllowStop)
+    }
+
     public func isProtected(_ port: Int) -> Bool { port > 0 && protectedPorts.contains(port) }
     /// Inside the monitored range, not excluded, and not privileged when those are hidden.
     public func isMonitored(_ port: Int) -> Bool {

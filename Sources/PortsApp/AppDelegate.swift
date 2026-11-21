@@ -49,7 +49,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         popover.delegate = self
         popover.contentSize = NSSize(width: 460, height: 620)
-        popover.contentViewController = NSHostingController(rootView: PanelView(model: model, app: self))
         model.app = self
         prompter.showInline = { [weak self] p in
             guard let self, self.popover.isShown else { return false }
@@ -122,6 +121,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if popover.isShown { popover.performClose(nil); return }
         guard let button = status.button else { return }
         NSApp.activate()
+        // The SwiftUI panel exists only while shown (built on open, released on close: lower idle memory).
+        popover.contentViewController = NSHostingController(rootView: PanelView(model: model, app: self))
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
@@ -140,6 +141,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func popoverDidClose(_ notification: Notification) {
         if let m = outsideClicks { NSEvent.removeMonitor(m); outsideClicks = nil }
+        popover.contentViewController = nil
+        icons.removeAll()
+        // Give the panel's freed memory back to the system once SwiftUI has torn it down.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { _ = malloc_zone_pressure_relief(nil, 0) }
         model.panelDidClose()
         cadence.panelOpen = false
         reschedule()

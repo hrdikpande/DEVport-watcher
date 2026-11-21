@@ -5,7 +5,8 @@
 #   ./Scripts/ui_smoke.sh               # needs build/Ports.app (./Scripts/build_app.sh --no-install)
 #   PORT_BASE=47300 ./Scripts/ui_smoke.sh
 #
-# Exit codes: 0 passed, 1 failed, 77 skipped (no Accessibility permission; never counts as passed).
+# Exit codes: 0 passed, 1 failed, 77 skipped (no Accessibility permission), 78 manual (rows unreadable via
+# System Events); neither 77 nor 78 counts as passed.
 # Only processes this script starts are ever signalled (this app instance and the harness).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -59,41 +60,40 @@ tell application "System Events"
   end tell
 end tell
 OSA
+# Popover elements are only reachable through raw AX attributes (System Events' `pop over 1` and
+# `entire contents` fail on them), so walk AXChildren and read AXDescription / AXTitle / AXValue.
 read_menu() {
   osascript <<OSA 2>/dev/null || true
-on walk(el, depth)
-  set out to ""
+on attr(el, a)
   tell application "System Events"
     try
-      set d to description of el
-      if d is not missing value and d is not "" then set out to out & d & linefeed
+      set v to value of attribute a of el
+      if class of v is text and v is not "" then return v & linefeed
     end try
-    try
-      set n to name of el
-      if n is not missing value and n is not "" then set out to out & n & linefeed
-    end try
-    try
-      set v to value of el
-      if class of v is text and v is not "" then set out to out & v & linefeed
-    end try
-    if depth < 14 then
-      set kids to {}
-      try
-        set kids to UI elements of el
-      end try
-      repeat with c in kids
-        try
-          set out to out & my walk(c, depth + 1)
-        end try
-      end repeat
-    end if
   end tell
+  return ""
+end attr
+on walk(el, depth)
+  set out to my attr(el, "AXDescription") & my attr(el, "AXTitle") & my attr(el, "AXValue")
+  if depth < 16 then
+    set kids to {}
+    tell application "System Events"
+      try
+        set kids to value of attribute "AXChildren" of el
+      end try
+    end tell
+    repeat with c in kids
+      try
+        set out to out & my walk(c, depth + 1)
+      end try
+    end repeat
+  end if
   return out
 end walk
 tell application "System Events"
   tell (first process whose unix id is $APP_PID)
     set out to ""
-    repeat with p in (UI elements of menu bar item 1 of menu bar 1)
+    repeat with p in (value of attribute "AXChildren" of menu bar item 1 of menu bar 1)
       set out to out & my walk(p, 0)
     end repeat
     return out
@@ -143,20 +143,21 @@ check_menu() {
   done
 }
 
-# The menu opens from cache and fills in as the open-menu scan lands: re-read until it matches (30 s cap).
-items="" errors=1
-for _ in {1..30}; do
-  sleep 1
-  items=$(read_menu)
-  [[ -n "$items" ]] || continue
-  check_menu
-  (( errors == 0 )) && break
-done
-osascript -e 'tell application "System Events" to key code 53' >/dev/null 2>&1 || true
-[[ -n "$items" ]] || fail "could not read the status-item menu"
+# The panel must open: the status item gains exactly one AX child (the popover) after the click.
+opened=$(osascript -e "tell application \"System Events\" to tell (first process whose unix id is $APP_PID) to count of (value of attribute \"AXChildren\" of menu bar item 1 of menu bar 1)" 2>/dev/null || echo 0)
+[[ "$opened" == "1" ]] || fail "the panel did not open (status item has $opened AX children)"
+echo "ui_smoke: panel opens"
+
+# Rows can't be read: System Events lists the popover but returns nothing beneath it (3 attempts:
+# entire contents, recursive UI elements, raw AXChildren walk). Row/badge checks are manual (VoiceOver).
+items=$(read_menu)
+if [[ -z "$items" ]]; then
+  echo "ui_smoke: MANUAL: panel rows aren't readable through System Events; check them with VoiceOver"
+  exit 78
+fi
+check_menu
 if (( errors > 0 )); then
   print -n -- "$report"
-  echo "Menu as read:"; print -r -- "$items"
-  fail "$errors menu expectation(s) not met"
+  fail "$errors panel expectation(s) not met"
 fi
-echo "ui_smoke: PASSED (menu rows and badges as expected)"
+echo "ui_smoke: PASSED (panel rows and badges as expected)"
