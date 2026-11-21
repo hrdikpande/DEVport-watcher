@@ -7,7 +7,7 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 
 - **Phase 2:** done. Branch `phase-2`, draft PR #5 → main, CI green.
 - **Phase 3:** done. Branch `phase-3`, draft PR #6 → phase-2, CI green.
-- **Phase 4:** done. Branch `phase-4`, draft PR → phase-3 (see the PR list). All local gates pass except one
+- **Phase 4:** done. Branch `phase-4`, draft PR #7 → phase-3, CI green. All local gates pass except one
   manual gate (below).
 - **Next step:** owner review. Phase 5 starts from `phase-4`; its FIRST commit splits `PortsCore.swift`
   (owner's rule 6). The owner asked me to stop after the Phase 4 PR.
@@ -26,7 +26,7 @@ run rules: `docs/AUTOPILOT_PROMPT.md`.
 |-------|---------------|-------------|---------------|-----------|-----------------|----------|-----------|-----|----------|----|
 | 2     | 0 warnings    | 0 warnings  | 78/78 ×5      | pass      | pass (13 ports, 0 left) | pass | 2.0–6.7 ms (579 procs) | footprint 17.5 MB (RSS 56 MB) | n/a | pass (#5) |
 | 3     | 0 warnings    | 0 warnings  | 94/94 ×5 (130 matcher cases) | pass | pass (14 ports + AirPlay explainer, 0 left) | pass | 2.9–3.7 ms (627 procs) | footprint 19.2 MB (RSS 60 MB) | n/a | pass (#6) |
-| 4     | 0 warnings    | 0 warnings  | 111/111 ×5; flake hunt 20/20 clean | pass | pass (16 ports + orphan, duplicate, leftover; 0 left) | pass | ≤ 4.6 ms | footprint 20.8 MB (RSS 62 MB) | n/a | pending |
+| 4     | 0 warnings    | 0 warnings  | 111/111 ×5; flake hunt 20/20 clean | pass | pass (16 ports + orphan, duplicate, leftover; 0 left) | pass | ≤ 4.6 ms | footprint 20.8 MB (RSS 62 MB) | n/a | pass (#7) |
 
 Phase 4 manual gate: **`dev_harness.sh --with-launchd --check` is manual. The owner runs it.** It is not
 "passed" until the owner reports it. Launchd-job exclusion is unit-tested with `launchctl list` fixtures.
